@@ -1,0 +1,17 @@
+name: Pruebas de base de datos
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  database:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Restaurar y probar en Docker
+        run: bash scripts/test-db.sh
