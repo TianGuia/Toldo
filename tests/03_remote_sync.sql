@@ -50,8 +50,13 @@ END $$;
 
 INSERT INTO public.perfiles_vendedor (id, id_usuario)
 VALUES ('21000000-0000-0000-0000-000000000001', '11000000-0000-0000-0000-000000000001');
-INSERT INTO public.productos (id, id_vendedor, nombre, cantidad_disponible)
-VALUES ('31000000-0000-0000-0000-000000000001', '21000000-0000-0000-0000-000000000001', 'Producto sintético', 5);
+INSERT INTO public.tianguis (id, nombre) VALUES ('71000000-0000-0000-0000-000000000001', 'Tianguis sintético');
+INSERT INTO public.vendedor_tianguis (id_vendedor, id_tianguis)
+VALUES ('21000000-0000-0000-0000-000000000001', '71000000-0000-0000-0000-000000000001');
+INSERT INTO public.puestos (id, id_vendedor, id_tianguis, nombre)
+VALUES ('81000000-0000-0000-0000-000000000001', '21000000-0000-0000-0000-000000000001', '71000000-0000-0000-0000-000000000001', 'Puesto sintético');
+INSERT INTO public.productos (id, id_vendedor, id_puesto, nombre, cantidad_disponible)
+VALUES ('31000000-0000-0000-0000-000000000001', '21000000-0000-0000-0000-000000000001', '81000000-0000-0000-0000-000000000001', 'Producto sintético', 5);
 INSERT INTO public.conversaciones (id, contexto, id_producto, id_iniciador, id_receptor)
 VALUES ('41000000-0000-0000-0000-000000000001', 'producto',
         '31000000-0000-0000-0000-000000000001',
@@ -135,8 +140,8 @@ INSERT INTO public.apartados (id_producto, id_comprador, id_vendedor, cantidad, 
 VALUES ('31000000-0000-0000-0000-000000000001', '11000000-0000-0000-0000-000000000002',
         '21000000-0000-0000-0000-000000000001', 2, 'aceptado', now() - interval '1 hour');
 UPDATE public.productos SET cantidad_disponible = 3 WHERE id = '31000000-0000-0000-0000-000000000001';
-INSERT INTO public.ofertas (id_vendedor, fecha_inicio, fecha_fin)
-VALUES ('21000000-0000-0000-0000-000000000001', now() - interval '2 hours', now() - interval '1 hour');
+INSERT INTO public.ofertas (id_vendedor, id_producto, descuento, fecha_inicio, fecha_fin)
+VALUES ('21000000-0000-0000-0000-000000000001', '31000000-0000-0000-0000-000000000001', 10, now() - interval '2 hours', now() - interval '1 hour');
 SET LOCAL ROLE authenticated;
 SELECT public.vencer_pendientes();
 SELECT public.vencer_pendientes();

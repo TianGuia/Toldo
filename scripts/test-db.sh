@@ -33,9 +33,20 @@ printf '%s' 'v2.197.0' > "$work_dir/supabase/.temp/gotrue-version"
 cp "$repo_root/supabase/config.toml" "$work_dir/supabase/config.toml"
 sed -i 's/^project_id = .*/project_id = "toldo_tests"/; s/54322/55432/g; s/54320/55430/g' "$work_dir/supabase/config.toml"
 cp -R "$repo_root/supabase/migrations" "$work_dir/supabase/migrations"
+# Primero restaurar el estado previo para probar la actualización con datos.
+er_migration=20261026010000_align_er.sql
+mv "$work_dir/supabase/migrations/$er_migration" "$work_dir/$er_migration"
 cp "$repo_root/supabase/seed.sql" "$work_dir/supabase/seed.sql"
 echo 'Creando base de pruebas local desde cero...'
 cli db start
+echo 'Probando migración ER con datos previos (ROLLBACK al terminar)...'
+{
+  cat "$repo_root/tests/upgrade/er_before.sql"
+  cat "$work_dir/$er_migration"
+  cat "$repo_root/tests/upgrade/er_after.sql"
+} | docker exec -i supabase_db_toldo_tests psql -X -U postgres -d postgres -v ON_ERROR_STOP=1
+mv "$work_dir/$er_migration" "$work_dir/supabase/migrations/$er_migration"
+cli migration up --local
 # Cada ejecución crea un contenedor y volumen nuevos, sin vínculo remoto.
 for test_file in "$repo_root"/tests/*.sql; do
   echo "Ejecutando $(basename "$test_file")..."

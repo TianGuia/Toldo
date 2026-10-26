@@ -23,12 +23,14 @@ habitual `Toldo`. Una ejecución concurrente con ese nombre se rechaza.
 No necesita cuenta de Supabase, credenciales ni vínculo a un proyecto remoto.
 La primera ejecución descarga las imágenes necesarias.
 
-Se comprueban la restauración de las 39 tablas, la activación de RLS, los datos
+Se comprueban la restauración de las 40 tablas, la activación de RLS, los datos
 de ejemplo, la lectura del perfil propio, la edición de productos propios, el
 rechazo de cambios y publicaciones ajenas, los campos reservados del perfil y
 la ausencia de privilegios TRUNCATE/TRIGGER para clientes.
 También se prueban ocultación de chats, respuestas de propuestas y apartados,
 restitución de stock al cancelar o vencer y sincronización del correo del perfil.
+La actualización al ER se prueba además sobre datos del esquema anterior y con
+conversaciones de tres participantes, ofertas individuales y visitas verificadas.
 
 GitHub Actions ejecuta el mismo script en cada push y pull request, sin secretos
 de despliegue. Una prueba que falla devuelve un código de salida distinto de cero.
@@ -44,6 +46,9 @@ de despliegue. Una prueba que falla devuelve un código de salida distinto de ce
 - `schema-reference.sql`: exportación de `public` del 2026-10-26, sin registros.
 - `docs/revision-inicial.md`: comparación con el modelo y trabajo pendiente.
 - `docs/sincronizacion-20261026.md`: cambios remotos incorporados y alcance.
+- `docs/modelo-er.md`: correspondencia de entidades, atributos y relaciones con el ER.
+- `docs/despliegue-supabase.md`: cómo reconocer el estado existente y desplegar migraciones.
+- `scripts/preflight-er.sql`: comprobaciones de datos previas al cambio del ER, de solo lectura.
 
 ## Migraciones y permisos
 
@@ -66,6 +71,17 @@ cuentas y nuevas políticas. Conserva la reducción local de privilegios de la
 segunda migración. El SQL de referencia reproduce los permisos exportados;
 las migraciones son la fuente para restaurar con los permisos restringidos.
 Esta sincronización no modifica el modelo para alinearlo con el ER.
+
+La cuarta migración alinea las relaciones con el ER: compradores explícitos,
+participantes N:M, producto con puesto obligatorio, ofertas por producto y estados
+faltantes. Documenta las equivalencias de nombres y tipos y conserva los datos
+mediante transformaciones incrementales. Requiere adaptar el cliente antes de
+desplegarla en el proyecto compartido. `schema-reference.sql` sigue siendo la
+exportación remota previa, no el esquema objetivo posterior a esta migración.
+
+**Pendiente:** desplegar la estructura del ER en Supabase y comprobar que esté
+aplicada en TianGuía, incluyendo la revisión de los flujos con el cliente adaptado.
+El detalle y el procedimiento están en [Despliegue](docs/despliegue-supabase.md).
 
 ## Alcance de la verificación
 

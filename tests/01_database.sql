@@ -2,8 +2,8 @@
 BEGIN;
 DO $$
 BEGIN
-  IF (SELECT count(*) FROM pg_tables WHERE schemaname = 'public') <> 39 THEN
-    RAISE EXCEPTION 'No se restauraron las 39 tablas esperadas';
+  IF (SELECT count(*) FROM pg_tables WHERE schemaname = 'public') <> 40 THEN
+    RAISE EXCEPTION 'No se restauraron las 40 tablas esperadas';
   END IF;
   IF EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = 'public' AND NOT rowsecurity) THEN
     RAISE EXCEPTION 'Hay tablas públicas sin RLS';
@@ -24,9 +24,16 @@ ON CONFLICT (id) DO NOTHING;
 INSERT INTO public.perfiles_vendedor (id,id_usuario)
 VALUES ('20000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000001'),
        ('20000000-0000-0000-0000-000000000002','10000000-0000-0000-0000-000000000002');
-INSERT INTO public.productos (id,id_vendedor,nombre)
-VALUES ('30000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001','Producto A'),
-       ('30000000-0000-0000-0000-000000000002','20000000-0000-0000-0000-000000000002','Producto B');
+INSERT INTO public.tianguis (id, nombre) VALUES ('40000000-0000-0000-0000-000000000001', 'Tianguis de prueba');
+INSERT INTO public.vendedor_tianguis (id_vendedor, id_tianguis)
+VALUES ('20000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000001'),
+       ('20000000-0000-0000-0000-000000000002', '40000000-0000-0000-0000-000000000001');
+INSERT INTO public.puestos (id, id_vendedor, id_tianguis, nombre)
+VALUES ('50000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000001', 'Puesto A'),
+       ('50000000-0000-0000-0000-000000000002', '20000000-0000-0000-0000-000000000002', '40000000-0000-0000-0000-000000000001', 'Puesto B');
+INSERT INTO public.productos (id,id_vendedor,id_puesto,nombre)
+VALUES ('30000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001','50000000-0000-0000-0000-000000000001','Producto A'),
+       ('30000000-0000-0000-0000-000000000002','20000000-0000-0000-0000-000000000002','50000000-0000-0000-0000-000000000002','Producto B');
 
 SET LOCAL ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub','10000000-0000-0000-0000-000000000001',true);
@@ -56,8 +63,8 @@ BEGIN
   GET DIAGNOSTICS affected = ROW_COUNT;
   IF affected <> 0 THEN RAISE EXCEPTION 'Puede editar productos ajenos'; END IF;
   BEGIN
-    INSERT INTO public.productos (id_vendedor,nombre)
-    VALUES ('20000000-0000-0000-0000-000000000002','Publicación ajena');
+    INSERT INTO public.productos (id_vendedor,id_puesto,nombre)
+    VALUES ('20000000-0000-0000-0000-000000000002','50000000-0000-0000-0000-000000000002','Publicación ajena');
     RAISE EXCEPTION 'Puede publicar como otro vendedor';
   EXCEPTION WHEN insufficient_privilege THEN NULL;
   END;
