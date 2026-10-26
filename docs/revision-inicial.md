@@ -3,6 +3,10 @@
 Fecha: 2026-10-25. Fuente: exportación de estructura del proyecto compartido
 Tianguia mediante Supabase CLI 2.122.0. No se exportaron registros de usuarios.
 
+Esta revisión describe la exportación inicial. La sincronización posterior se
+documenta en [Sincronización del 2026-10-26](sincronizacion-20261026.md);
+`schema-reference.sql` ahora contiene esa exportación más reciente de `public`.
+
 ## Resultado
 
 La exportación contiene 38 tablas de aplicación, todas con RLS habilitado,

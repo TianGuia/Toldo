@@ -2,8 +2,8 @@
 BEGIN;
 DO $$
 BEGIN
-  IF (SELECT count(*) FROM pg_tables WHERE schemaname = 'public') <> 38 THEN
-    RAISE EXCEPTION 'No se restauraron las 38 tablas esperadas';
+  IF (SELECT count(*) FROM pg_tables WHERE schemaname = 'public') <> 39 THEN
+    RAISE EXCEPTION 'No se restauraron las 39 tablas esperadas';
   END IF;
   IF EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = 'public' AND NOT rowsecurity) THEN
     RAISE EXCEPTION 'Hay tablas públicas sin RLS';

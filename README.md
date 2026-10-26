@@ -23,10 +23,12 @@ habitual `Toldo`. Una ejecución concurrente con ese nombre se rechaza.
 No necesita cuenta de Supabase, credenciales ni vínculo a un proyecto remoto.
 La primera ejecución descarga las imágenes necesarias.
 
-Se comprueban la restauración de las 38 tablas, la activación de RLS, los datos
+Se comprueban la restauración de las 39 tablas, la activación de RLS, los datos
 de ejemplo, la lectura del perfil propio, la edición de productos propios, el
 rechazo de cambios y publicaciones ajenas, los campos reservados del perfil y
 la ausencia de privilegios TRUNCATE/TRIGGER para clientes.
+También se prueban ocultación de chats, respuestas de propuestas y apartados,
+restitución de stock al cancelar o vencer y sincronización del correo del perfil.
 
 GitHub Actions ejecuta el mismo script en cada push y pull request, sin secretos
 de despliegue. Una prueba que falla devuelve un código de salida distinto de cero.
@@ -39,8 +41,9 @@ de despliegue. Una prueba que falla devuelve un código de salida distinto de ce
 - `scripts/test-db.sh`: creación y limpieza del entorno Docker de pruebas.
 - `tests/`: comprobaciones SQL; sus datos se revierten al terminar.
 - `.github/workflows/database.yml`: ejecución automática de la misma suite.
-- `schema-reference.sql`: exportación original de estructura, sin registros.
+- `schema-reference.sql`: exportación de `public` del 2026-10-26, sin registros.
 - `docs/revision-inicial.md`: comparación con el modelo y trabajo pendiente.
+- `docs/sincronizacion-20261026.md`: cambios remotos incorporados y alcance.
 
 ## Migraciones y permisos
 
@@ -56,6 +59,13 @@ y pruebas locales; no se aplican automáticamente al proyecto compartido.
 Los cambios se prueban localmente y se revisan antes de que un responsable los
 aplique al entorno correspondiente. La aplicación móvil utiliza la API con
 permisos limitados; no crea tablas ni ejecuta migraciones.
+
+La tercera migración incorpora los cambios de `public` exportados el 2026-10-26:
+conversaciones ocultas, respuestas y vencimiento de tratos, verificación de
+cuentas y nuevas políticas. Conserva la reducción local de privilegios de la
+segunda migración. El SQL de referencia reproduce los permisos exportados;
+las migraciones son la fuente para restaurar con los permisos restringidos.
+Esta sincronización no modifica el modelo para alinearlo con el ER.
 
 ## Alcance de la verificación
 
