@@ -102,8 +102,54 @@ calificaciones, apartados y ofertas con el cliente compatible. La configuración
 de Auth, storage y sus triggers no queda totalmente descrita por la exportación
 de `public`; un proyecto nuevo también necesita esas integraciones.
 
-## Referencias
+## Despliegue manual desde GitHub Actions
+
+El workflow **Actualizar Supabase** (`.github/workflows/deploy-supabase.yml`)
+solo se inicia mediante `workflow_dispatch`; no se despliega con push ni PR.
+El archivo debe estar publicado en la rama predeterminada para aparecer en Actions.
+
+En Settings > Secrets and variables > Actions del repositorio Toldo, configura
+dos secretos de repositorio con estos nombres exactos:
+
+- `SUPABASE_ACCESS_TOKEN`: token de la cuenta autorizada para el proyecto.
+- `SUPABASE_DB_PASSWORD`: contraseña PostgreSQL del proyecto de destino.
+
+El job asigna cada secreto a la variable de entorno del mismo nombre, que la CLI
+consume. El primer paso después del checkout comprueba ambos, antes de cualquier
+invocación de npx, incluidas las pruebas locales. Ausencia, cadena vacía o solo
+espacios provocan error, sin mostrar valores. El script de despliegue repite la
+validación antes de cada llamada a `npx --yes supabase@2.122.0`.
+
+Después de reconciliar el historial como se explicó arriba:
+
+1. Actions > Actualizar Supabase > Run workflow.
+2. Selecciona rama y `project_ref` (Tianguia por defecto).
+3. Deja `apply_changes` desmarcado para revisar el plan.
+4. Activa `apply_changes` en una ejecución posterior para aplicar las migraciones.
+
+Ambos modos ejecutan las pruebas locales, vinculan el proyecto, muestran el
+historial y exigen los cuatro contadores del preflight en cero. La aplicación
+ejecuta primero el dry-run y después el push con confirmación no interactiva.
+Si faltan secretos, fallan las pruebas, el preflight o el dry-run, no se aplica.
+Las ejecuciones para el mismo proyecto no se ejecutan simultáneamente.
+
+El workflow no repara el historial automáticamente. Si las migraciones iniciales
+ya existen pero no están registradas, completa primero el reconocimiento
+documentado; un fallo de historial detiene el despliegue.
+
+Tras aplicar, `scripts/verify-er.sql` comprueba registro de migración, entidades,
+FK de compradores, PK compuestas, obligatoriedad de puesto/producto, estados y
+RLS. El resumen de Actions registra proyecto y commit. Esto verifica la estructura;
+la revisión funcional en TianGuía con el cliente compatible sigue siendo un
+pendiente separado. Crear o commitear el workflow tampoco acredita su ejecución.
+
+Los scripts se prueban con npx simulado: secretos ausentes/vacíos/espacios no
+ejecutan ningún comando, preview no aplica, errores de preflight/dry-run impiden
+el push real. La verificación SQL también se ejecuta contra la base local.
+
+## Referencias oficiales
 
 - [Flujo local y despliegue de Supabase](https://supabase.com/docs/guides/local-development/cli-workflows)
 - [Migraciones e historial](https://supabase.com/docs/guides/deployment/database-migrations)
 - [Referencia de la CLI](https://supabase.com/docs/reference/cli)
+- [Supabase y GitHub Actions](https://supabase.com/docs/guides/deployment/managing-environments)

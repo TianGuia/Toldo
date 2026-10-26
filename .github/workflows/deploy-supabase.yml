@@ -1,0 +1,58 @@
+name: Actualizar Supabase
+
+on:
+  workflow_dispatch:
+    inputs:
+      project_ref:
+        description: Identificador del proyecto Supabase de destino
+        required: true
+        type: string
+        default: ijnvztoyhizdwtzagrvy
+      apply_changes:
+        description: Aplicar las migraciones (desmarcado solo muestra el plan)
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: supabase-deploy-${{ inputs.project_ref }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      SUPABASE_PROJECT_REF: ${{ inputs.project_ref }}
+      DEPLOY_MODE: ${{ inputs.apply_changes && 'apply' || 'preview' }}
+    steps:
+      - uses: actions/checkout@v4
+      # Debe preceder a las pruebas locales: también usan npx/Supabase.
+      - name: Validar secretos antes de ejecutar Supabase
+        run: bash scripts/validate-supabase-env.sh
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Probar restauración y migraciones localmente
+        run: bash scripts/test-db.sh
+      - name: Revisar o aplicar migraciones en Supabase
+        run: bash scripts/deploy-supabase.sh "$DEPLOY_MODE" "$SUPABASE_PROJECT_REF"
+      - name: Registrar resultado
+        env:
+          DEPLOY_SHA: ${{ github.sha }}
+        run: |
+          {
+            printf 'Proyecto: `%s`\n\n' "$SUPABASE_PROJECT_REF"
+            printf 'Commit: `%s`\n\n' "$DEPLOY_SHA"
+            if [[ "$DEPLOY_MODE" == apply ]]; then
+              printf 'Migraciones aplicadas y estructura ER comprobada mediante SQL.\n\n'
+              printf 'Pendiente: revisión funcional de TianGuía con el cliente compatible.\n'
+            else
+              printf 'Vista previa completada; no se aplicaron migraciones.\n'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

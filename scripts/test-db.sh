@@ -2,6 +2,7 @@
 set -euo pipefail
 # No recibe URLs, credenciales ni banderas de destino remoto.
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+bash "$repo_root/tests/deploy-workflow.sh"
 command -v docker >/dev/null
 command -v npx >/dev/null
 docker info >/dev/null
@@ -52,4 +53,6 @@ for test_file in "$repo_root"/tests/*.sql; do
   echo "Ejecutando $(basename "$test_file")..."
   docker exec -i supabase_db_toldo_tests psql -X -U postgres -d postgres -v ON_ERROR_STOP=1 < "$test_file"
 done
+echo 'Verificando la estructura que comprobará el despliegue...'
+docker exec -i supabase_db_toldo_tests psql -X -U postgres -d postgres -v ON_ERROR_STOP=1 < "$repo_root/scripts/verify-er.sql"
 echo 'Restauración, datos de ejemplo y pruebas SQL: correctos.'

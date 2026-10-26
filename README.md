@@ -43,6 +43,8 @@ de despliegue. Una prueba que falla devuelve un código de salida distinto de ce
 - `scripts/test-db.sh`: creación y limpieza del entorno Docker de pruebas.
 - `tests/`: comprobaciones SQL; sus datos se revierten al terminar.
 - `.github/workflows/database.yml`: ejecución automática de la misma suite.
+- `.github/workflows/deploy-supabase.yml`: despliegue manual por workflow_dispatch,
+  con validación de secretos, pruebas, vista previa y verificación SQL posterior.
 - `schema-reference.sql`: exportación de `public` del 2026-10-26, sin registros.
 - `docs/revision-inicial.md`: comparación con el modelo y trabajo pendiente.
 - `docs/sincronizacion-20261026.md`: cambios remotos incorporados y alcance.
