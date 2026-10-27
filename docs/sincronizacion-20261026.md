@@ -1,3 +1,5 @@
+> Documento histórico anterior a la reorganización. La secuencia vigente y su captura están en [Línea base](baseline-20261027.md).
+
 # Sincronización de public del 2026-10-26
 
 Fuente: exportación de estructura de `public` del proyecto Tianguia mediante

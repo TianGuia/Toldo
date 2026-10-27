@@ -2,7 +2,7 @@
 
 Fuente: `Diagrama_ER_TianGuia.pdf`, proporcionado en Tianguiapp. El responsable
 aceptó equivalencias documentadas de nombres y tipos el 2026-10-26. La migración
-incremental es `20261026010000_align_er.sql`; no modifica el PDF ni el cliente.
+incremental es `20261027000200_align_domain_contract.sql`; no modifica el PDF ni el cliente.
 
 ## Equivalencias físicas
 
@@ -78,12 +78,18 @@ Antes de desplegar este cambio junto con el cliente hay que adaptar:
 4. Chat: consultar y administrar participantes para aprovechar conversaciones
    de más de dos personas; las RPC de mensajes y ocultación ya los validan.
 
-La app aún no se ha adaptado en esta tarea. Esta migración permanece local hasta
+La copia de Tianguiapp se adapta a estas relaciones y documenta las clases en
+`docs/contrato-dominio.md` del repositorio de la app. La migración posterior
+`20261027000300_client_operations.sql` agrega el retiro transaccional del puesto y sus
+productos, sin anular su asociación. Los cambios permanecen locales hasta
 coordinar backend y cliente; consulta [Despliegue](despliegue-supabase.md).
+La misma migración agrega `iniciar_conversacion` para crear por RPC y recuperar
+después por membresía. El INSERT con RETURNING del cliente anterior se evalúa
+antes del trigger AFTER INSERT y no cumple la nueva política de lectura.
 
 ## Pruebas
 
-La suite restaura las tres migraciones previas, inserta datos históricos,
+La suite restaura la línea base y la mejora de permisos, inserta datos históricos,
 ejecuta la migración ER, comprueba la transformación y revierte esa prueba.
 Después aplica la migración mediante la CLI y ejecuta todas las pruebas sobre
 el esquema final. Los fixtures no contienen datos reales ni acceden al remoto.

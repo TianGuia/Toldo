@@ -3,6 +3,7 @@ set -euo pipefail
 # No recibe URLs, credenciales ni banderas de destino remoto.
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 bash "$repo_root/tests/deploy-workflow.sh"
+python3 -m unittest discover -s "$repo_root/tests" -p 'test_*.py'
 command -v docker >/dev/null
 command -v npx >/dev/null
 docker info >/dev/null
@@ -34,22 +35,36 @@ printf '%s' 'v2.197.0' > "$work_dir/supabase/.temp/gotrue-version"
 cp "$repo_root/supabase/config.toml" "$work_dir/supabase/config.toml"
 sed -i 's/^project_id = .*/project_id = "toldo_tests"/; s/54322/55432/g; s/54320/55430/g' "$work_dir/supabase/config.toml"
 cp -R "$repo_root/supabase/migrations" "$work_dir/supabase/migrations"
-# Primero restaurar el estado previo para probar la actualización con datos.
-er_migration=20261026010000_align_er.sql
-mv "$work_dir/supabase/migrations/$er_migration" "$work_dir/$er_migration"
+# Primero comprobar la captura exacta; las mejoras se aplican por etapas.
+baseline_migration=20261027000000_baseline_supabase.sql
+privileges_migration=20261027000100_restrict_client_privileges.sql
+er_migration=20261027000200_align_domain_contract.sql
+mkdir "$work_dir/pending"
+for migration in "$work_dir"/supabase/migrations/*.sql; do
+  if [[ "$(basename "$migration")" != "$baseline_migration" ]]; then
+    mv "$migration" "$work_dir/pending/"
+  fi
+done
 cp "$repo_root/supabase/seed.sql" "$work_dir/supabase/seed.sql"
 echo 'Creando base de pruebas local desde cero...'
 cli db start
+echo 'Verificando la linea base capturada del remoto, sin mejoras posteriores...'
+docker exec -i supabase_db_toldo_tests psql -X -U postgres -d postgres -v ON_ERROR_STOP=1 < "$repo_root/tests/baseline.sql"
+echo 'Aplicando la mejora de permisos...'
+mv "$work_dir/pending/$privileges_migration" "$work_dir/supabase/migrations/"
+cli migration up --local
 echo 'Probando migración ER con datos previos (ROLLBACK al terminar)...'
 {
   cat "$repo_root/tests/upgrade/er_before.sql"
-  cat "$work_dir/$er_migration"
+  cat "$work_dir/pending/$er_migration"
   cat "$repo_root/tests/upgrade/er_after.sql"
 } | docker exec -i supabase_db_toldo_tests psql -X -U postgres -d postgres -v ON_ERROR_STOP=1
-mv "$work_dir/$er_migration" "$work_dir/supabase/migrations/$er_migration"
+for migration in "$work_dir"/pending/*.sql; do
+  if [[ -e "$migration" ]]; then mv "$migration" "$work_dir/supabase/migrations/"; fi
+done
 cli migration up --local
 # Cada ejecución crea un contenedor y volumen nuevos, sin vínculo remoto.
-for test_file in "$repo_root"/tests/*.sql; do
+for test_file in "$repo_root"/tests/[0-9]*.sql; do
   echo "Ejecutando $(basename "$test_file")..."
   docker exec -i supabase_db_toldo_tests psql -X -U postgres -d postgres -v ON_ERROR_STOP=1 < "$test_file"
 done

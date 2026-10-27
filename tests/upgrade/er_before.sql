@@ -5,7 +5,8 @@ INSERT INTO auth.users (id, email, is_anonymous) VALUES
  ('12000000-0000-0000-0000-000000000002', 'upgrade-c@example.test', false);
 INSERT INTO public.usuarios (id, nombre_publico) VALUES
  ('12000000-0000-0000-0000-000000000001', 'Vendedor previo'),
- ('12000000-0000-0000-0000-000000000002', 'Comprador previo');
+ ('12000000-0000-0000-0000-000000000002', 'Comprador previo')
+ON CONFLICT (id) DO UPDATE SET nombre_publico=EXCLUDED.nombre_publico;
 INSERT INTO public.perfiles_vendedor (id, id_usuario)
 VALUES ('22000000-0000-0000-0000-000000000001', '12000000-0000-0000-0000-000000000001');
 INSERT INTO public.tianguis (id, nombre) VALUES ('32000000-0000-0000-0000-000000000001', 'Mercado previo');

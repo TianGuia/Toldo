@@ -1,6 +1,3 @@
-
-
-
 SET statement_timeout = 0;
 SET lock_timeout = 0;
 SET idle_in_transaction_session_timeout = 0;
@@ -470,15 +467,17 @@ CREATE OR REPLACE FUNCTION "public"."handle_new_user"() RETURNS "trigger"
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO 'public'
     AS $$
+declare v_nombre text;
 begin
+  v_nombre := left(coalesce(nullif(trim(new.raw_user_meta_data->>'nombre_publico'), ''),
+                            nullif(split_part(coalesce(new.email, ''), '@', 1), ''),
+                            'Invitado'), 80);
+  if exists (select 1 from public.usuarios where lower(nombre_publico) = lower(v_nombre)) then
+    v_nombre := left(v_nombre, 71) || '-' || substr(new.id::text, 1, 8);
+  end if;
+
   insert into public.usuarios (id, nombre_publico, correo)
-  values (
-    new.id,
-    left(coalesce(nullif(trim(new.raw_user_meta_data->>'nombre_publico'), ''),
-                  nullif(split_part(coalesce(new.email, ''), '@', 1), ''),
-                  'Invitado'), 80),
-    new.email
-  )
+  values (new.id, v_nombre, new.email)
   on conflict (id) do nothing;
 
   insert into public.preferencias_notificacion (id_usuario)
@@ -539,6 +538,21 @@ $$;
 
 
 ALTER FUNCTION "public"."mi_vendedor_id"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."nombre_disponible"("p_nombre" "text") RETURNS boolean
+    LANGUAGE "sql" STABLE SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+  select not exists (
+    select 1 from public.usuarios
+     where lower(nombre_publico) = lower(trim(p_nombre))
+       and id <> coalesce(auth.uid(), '00000000-0000-0000-0000-000000000000'::uuid)
+  );
+$$;
+
+
+ALTER FUNCTION "public"."nombre_disponible"("p_nombre" "text") OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."notificar_ausencia"() RETURNS "trigger"
@@ -2053,6 +2067,10 @@ CREATE UNIQUE INDEX "uq_silencio_vendedor" ON "public"."silencios_notificacion" 
 
 
 
+CREATE UNIQUE INDEX "usuarios_nombre_publico_unico" ON "public"."usuarios" USING "btree" ("lower"("nombre_publico"));
+
+
+
 CREATE OR REPLACE TRIGGER "administradores_solo_reales" BEFORE INSERT ON "public"."administradores" FOR EACH ROW EXECUTE FUNCTION "public"."tg_solo_cuentas_reales"();
 
 
@@ -3130,6 +3148,13 @@ GRANT ALL ON FUNCTION "public"."limpiar_codigos_visita"() TO "service_role";
 GRANT ALL ON FUNCTION "public"."mi_vendedor_id"() TO "anon";
 GRANT ALL ON FUNCTION "public"."mi_vendedor_id"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."mi_vendedor_id"() TO "service_role";
+
+
+
+REVOKE ALL ON FUNCTION "public"."nombre_disponible"("p_nombre" "text") FROM PUBLIC;
+GRANT ALL ON FUNCTION "public"."nombre_disponible"("p_nombre" "text") TO "anon";
+GRANT ALL ON FUNCTION "public"."nombre_disponible"("p_nombre" "text") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."nombre_disponible"("p_nombre" "text") TO "service_role";
 
 
 

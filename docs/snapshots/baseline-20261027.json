@@ -1,0 +1,180 @@
+{
+  "application_publications": [
+    {
+      "publication": "supabase_realtime",
+      "schema": "public",
+      "table": "apartados"
+    },
+    {
+      "publication": "supabase_realtime",
+      "schema": "public",
+      "table": "mensajes"
+    },
+    {
+      "publication": "supabase_realtime",
+      "schema": "public",
+      "table": "notificaciones"
+    },
+    {
+      "publication": "supabase_realtime",
+      "schema": "public",
+      "table": "propuestas_precio"
+    },
+    {
+      "publication": "supabase_realtime",
+      "schema": "public",
+      "table": "puestos"
+    }
+  ],
+  "cli_history_table": null,
+  "counts": {
+    "enums": 19,
+    "functions": 39,
+    "policies": 86,
+    "tables": 39,
+    "triggers": 20,
+    "views": 5
+  },
+  "database": "postgres",
+  "extensions": [
+    {
+      "name": "pg_cron",
+      "schema": "pg_catalog",
+      "version": "1.6.4"
+    },
+    {
+      "name": "pg_stat_statements",
+      "schema": "extensions",
+      "version": "1.11"
+    },
+    {
+      "name": "pg_trgm",
+      "schema": "public",
+      "version": "1.6"
+    },
+    {
+      "name": "pgcrypto",
+      "schema": "extensions",
+      "version": "1.3"
+    },
+    {
+      "name": "plpgsql",
+      "schema": "pg_catalog",
+      "version": "1.0"
+    },
+    {
+      "name": "supabase_vault",
+      "schema": "vault",
+      "version": "0.3.1"
+    },
+    {
+      "name": "uuid-ossp",
+      "schema": "extensions",
+      "version": "1.1"
+    }
+  ],
+  "managed_triggers": [
+    {
+      "enabled": "O",
+      "name": "on_auth_user_contacto",
+      "schema": "auth",
+      "sql": "CREATE TRIGGER on_auth_user_contacto AFTER UPDATE OF email ON auth.users FOR EACH ROW WHEN (((new.email)::text IS DISTINCT FROM (old.email)::text)) EXECUTE FUNCTION tg_sync_contacto()",
+      "table": "users"
+    },
+    {
+      "enabled": "O",
+      "name": "on_auth_user_created",
+      "schema": "auth",
+      "sql": "CREATE TRIGGER on_auth_user_created AFTER INSERT ON auth.users FOR EACH ROW EXECUTE FUNCTION handle_new_user()",
+      "table": "users"
+    }
+  ],
+  "migration_tables": [
+    {
+      "schema": "auth",
+      "table": "schema_migrations"
+    },
+    {
+      "schema": "realtime",
+      "table": "schema_migrations"
+    },
+    {
+      "schema": "storage",
+      "table": "migrations"
+    }
+  ],
+  "storage_buckets": [
+    {
+      "allowed_mime_types": null,
+      "file_size_limit": null,
+      "id": "perfiles",
+      "name": "perfiles",
+      "public": true
+    },
+    {
+      "allowed_mime_types": null,
+      "file_size_limit": null,
+      "id": "productos",
+      "name": "productos",
+      "public": true
+    }
+  ],
+  "storage_policies": [
+    {
+      "check": null,
+      "command": "DELETE",
+      "name": "storage_borrar",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "authenticated"
+      ],
+      "schema": "storage",
+      "table": "objects",
+      "using": "((bucket_id = ANY (ARRAY['productos'::text, 'perfiles'::text])) AND ((storage.foldername(name))[1] = (auth.uid())::text))"
+    },
+    {
+      "check": null,
+      "command": "UPDATE",
+      "name": "storage_editar",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "authenticated"
+      ],
+      "schema": "storage",
+      "table": "objects",
+      "using": "((bucket_id = ANY (ARRAY['productos'::text, 'perfiles'::text])) AND ((storage.foldername(name))[1] = (auth.uid())::text))"
+    },
+    {
+      "check": null,
+      "command": "SELECT",
+      "name": "storage_lectura",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "public"
+      ],
+      "schema": "storage",
+      "table": "objects",
+      "using": "(bucket_id = ANY (ARRAY['productos'::text, 'perfiles'::text]))"
+    },
+    {
+      "check": "((bucket_id = ANY (ARRAY['productos'::text, 'perfiles'::text])) AND ((storage.foldername(name))[1] = (auth.uid())::text))",
+      "command": "INSERT",
+      "name": "storage_subir",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "authenticated"
+      ],
+      "schema": "storage",
+      "table": "objects",
+      "using": null
+    }
+  ],
+  "cron_jobs": [
+    {
+      "active": true,
+      "command": "select public.vencer_pendientes()",
+      "jobname": "tianguia_vencer",
+      "schedule": "*/10 * * * *"
+    }
+  ]
+}

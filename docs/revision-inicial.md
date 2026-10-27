@@ -1,3 +1,5 @@
+> Documento histórico anterior a la reorganización. La secuencia vigente y su captura están en [Línea base](baseline-20261027.md).
+
 # Revisión inicial de la base de datos
 
 Fecha: 2026-10-25. Fuente: exportación de estructura del proyecto compartido

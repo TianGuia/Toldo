@@ -14,7 +14,8 @@ INSERT INTO public.usuarios (id, nombre_publico) VALUES
  ('13000000-0000-0000-0000-000000000001', 'Persona A'),
  ('13000000-0000-0000-0000-000000000002', 'Persona B'),
  ('13000000-0000-0000-0000-000000000003', 'Persona C'),
- ('13000000-0000-0000-0000-000000000004', 'Persona ajena');
+ ('13000000-0000-0000-0000-000000000004', 'Persona ajena')
+ON CONFLICT (id) DO UPDATE SET nombre_publico=EXCLUDED.nombre_publico;
 INSERT INTO public.perfiles_vendedor (id, id_usuario)
 VALUES ('23000000-0000-0000-0000-000000000001', '13000000-0000-0000-0000-000000000001');
 SELECT pg_temp.assert_er(

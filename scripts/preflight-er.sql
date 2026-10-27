@@ -1,4 +1,4 @@
--- Solo lectura, ejecutar antes de desplegar 20261026010000_align_er.sql.
+-- Solo lectura, ejecutar antes de desplegar 20261027000200_align_domain_contract.sql.
 -- No lista datos personales; cuenta las condiciones que bloquearían la migración.
 SELECT 'productos_sin_puesto_ambiguos' AS condicion, count(*) AS pendientes
 FROM public.productos p WHERE p.id_puesto IS NULL

@@ -1,5 +1,22 @@
+-- Baseline of the existing Tianguia project, captured with Supabase CLI 2.122.0.
+-- public is schema-only; managed schemas are provided by the Supabase platform.
+-- Custom Auth triggers, Storage configuration/policies and Realtime follow the dump.
+-- No user rows, credentials, bucket objects or internal migration records.
+-- See docs/baseline-20261027.md for provenance and adoption procedure.
+-- public SHA256: c61fb6ebe6c25fe6c82bc0d725aa154078b98f3a84d6d81094403710fe78ffd1
 
-
+CREATE EXTENSION IF NOT EXISTS "pg_cron" WITH SCHEMA "pg_catalog";
+CREATE SCHEMA IF NOT EXISTS "extensions";
+CREATE EXTENSION IF NOT EXISTS "pg_stat_statements" WITH SCHEMA "extensions";
+CREATE SCHEMA IF NOT EXISTS "public";
+CREATE EXTENSION IF NOT EXISTS "pg_trgm" WITH SCHEMA "public";
+CREATE SCHEMA IF NOT EXISTS "extensions";
+CREATE EXTENSION IF NOT EXISTS "pgcrypto" WITH SCHEMA "extensions";
+CREATE EXTENSION IF NOT EXISTS "plpgsql" WITH SCHEMA "pg_catalog";
+CREATE SCHEMA IF NOT EXISTS "vault";
+CREATE EXTENSION IF NOT EXISTS "supabase_vault" WITH SCHEMA "vault";
+CREATE SCHEMA IF NOT EXISTS "extensions";
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp" WITH SCHEMA "extensions";
 
 SET statement_timeout = 0;
 SET lock_timeout = 0;
@@ -13,42 +30,13 @@ SET client_min_messages = warning;
 SET row_security = off;
 
 
+CREATE SCHEMA IF NOT EXISTS "public";
+
+
+ALTER SCHEMA "public" OWNER TO "pg_database_owner";
+
+
 COMMENT ON SCHEMA "public" IS 'standard public schema';
-
-
-
-CREATE EXTENSION IF NOT EXISTS "pg_stat_statements" WITH SCHEMA "extensions";
-
-
-
-
-
-
-CREATE EXTENSION IF NOT EXISTS "pg_trgm" WITH SCHEMA "public";
-
-
-
-
-
-
-CREATE EXTENSION IF NOT EXISTS "pgcrypto" WITH SCHEMA "extensions";
-
-
-
-
-
-
-CREATE EXTENSION IF NOT EXISTS "supabase_vault" WITH SCHEMA "vault";
-
-
-
-
-
-
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp" WITH SCHEMA "extensions";
-
-
-
 
 
 
@@ -418,6 +406,21 @@ $$;
 ALTER FUNCTION "public"."es_anonimo"("p_uid" "uuid") OWNER TO "postgres";
 
 
+CREATE OR REPLACE FUNCTION "public"."es_mi_vendedor"("p_vendedor_id" "uuid") RETURNS boolean
+    LANGUAGE "sql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+  select exists (
+    select 1
+    from public.perfiles_vendedor
+    where id = p_vendedor_id and id_usuario = auth.uid()
+  );
+$$;
+
+
+ALTER FUNCTION "public"."es_mi_vendedor"("p_vendedor_id" "uuid") OWNER TO "postgres";
+
+
 CREATE OR REPLACE FUNCTION "public"."expirar_apartados"() RETURNS "void"
     LANGUAGE "sql" SECURITY DEFINER
     SET "search_path" TO 'public'
@@ -484,20 +487,22 @@ CREATE OR REPLACE FUNCTION "public"."handle_new_user"() RETURNS "trigger"
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO 'public'
     AS $$
+declare v_nombre text;
 begin
-  insert into usuarios (id, nombre_publico, correo, telefono)
-  values (
-    new.id,
-    left(coalesce(nullif(trim(new.raw_user_meta_data->>'nombre_publico'), ''),
-                  nullif(trim(new.raw_user_meta_data->>'nombre'), ''),
-                  nullif(split_part(coalesce(new.email, ''), '@', 1), ''),
-                  'Invitado'), 80),
-    new.email,
-    new.phone
-  ) on conflict (id) do nothing;
+  v_nombre := left(coalesce(nullif(trim(new.raw_user_meta_data->>'nombre_publico'), ''),
+                            nullif(split_part(coalesce(new.email, ''), '@', 1), ''),
+                            'Invitado'), 80);
+  if exists (select 1 from public.usuarios where lower(nombre_publico) = lower(v_nombre)) then
+    v_nombre := left(v_nombre, 71) || '-' || substr(new.id::text, 1, 8);
+  end if;
 
-  insert into preferencias_notificacion (id_usuario) values (new.id)
-  on conflict do nothing;
+  insert into public.usuarios (id, nombre_publico, correo)
+  values (new.id, v_nombre, new.email)
+  on conflict (id) do nothing;
+
+  insert into public.preferencias_notificacion (id_usuario)
+  values (new.id)
+  on conflict (id_usuario) do nothing;
   return new;
 end $$;
 
@@ -553,6 +558,21 @@ $$;
 
 
 ALTER FUNCTION "public"."mi_vendedor_id"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."nombre_disponible"("p_nombre" "text") RETURNS boolean
+    LANGUAGE "sql" STABLE SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+  select not exists (
+    select 1 from public.usuarios
+     where lower(nombre_publico) = lower(trim(p_nombre))
+       and id <> coalesce(auth.uid(), '00000000-0000-0000-0000-000000000000'::uuid)
+  );
+$$;
+
+
+ALTER FUNCTION "public"."nombre_disponible"("p_nombre" "text") OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."notificar_ausencia"() RETURNS "trigger"
@@ -622,6 +642,26 @@ end $$;
 
 
 ALTER FUNCTION "public"."notificar_oferta"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."ocultar_conversacion"("p_id" "uuid") RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+begin
+  if not exists (
+    select 1 from public.conversaciones c
+    where c.id = p_id and (c.id_iniciador = auth.uid() or c.id_receptor = auth.uid())
+  ) then
+    raise exception 'No participas en esa conversación';
+  end if;
+  insert into public.conversaciones_ocultas (id_usuario, id_conversacion, ocultada_en)
+  values (auth.uid(), p_id, now())
+  on conflict (id_usuario, id_conversacion) do update set ocultada_en = now();
+end $$;
+
+
+ALTER FUNCTION "public"."ocultar_conversacion"("p_id" "uuid") OWNER TO "postgres";
 
 SET default_tablespace = '';
 
@@ -866,6 +906,112 @@ $$;
 ALTER FUNCTION "public"."puestos_tendencia"("p_categoria" "uuid", "p_limite" integer) OWNER TO "postgres";
 
 
+CREATE OR REPLACE FUNCTION "public"."responder_apartado"("p_id" "uuid", "p_accion" "text") RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+declare r record; v_user_vendedor uuid; es_v boolean; es_c boolean; e text; v_cant integer;
+begin
+  select * into r from public.apartados where id = p_id for update;
+  if not found then raise exception 'Apartado no encontrado'; end if;
+
+  select id_usuario into v_user_vendedor from public.perfiles_vendedor where id = r.id_vendedor;
+  es_v := (auth.uid() = v_user_vendedor);
+  es_c := (auth.uid() = r.id_comprador);
+  if not (es_v or es_c) then raise exception 'No participas en este apartado'; end if;
+  e := r.estado::text;
+
+  perform set_config('tianguia.rpc', '1', true);
+
+  if p_accion = 'aceptar' then
+    if not es_v then raise exception 'Solo el vendedor puede aceptar'; end if;
+    if e <> 'pendiente' then raise exception 'Este apartado ya fue respondido'; end if;
+    if r.fecha_expiracion is not null and r.fecha_expiracion < now() then
+      raise exception 'La solicitud ya venció';
+    end if;
+    select cantidad_disponible into v_cant from public.productos where id = r.id_producto for update;
+    if v_cant is not null then
+      if v_cant < r.cantidad then raise exception 'No hay suficientes piezas disponibles'; end if;
+      update public.productos
+         set cantidad_disponible = v_cant - r.cantidad,
+             disponible = (v_cant - r.cantidad) > 0,
+             actualizado_en = now()
+       where id = r.id_producto;
+    end if;
+    -- el apartado aceptado dura 24 h a partir de que el vendedor acepta
+    update public.apartados set estado = 'aceptado', fecha_expiracion = now() + interval '24 hours'
+     where id = p_id;
+
+  elsif p_accion = 'rechazar' then
+    if not es_v then raise exception 'Solo el vendedor puede rechazar'; end if;
+    if e <> 'pendiente' then raise exception 'Este apartado ya fue respondido'; end if;
+    update public.apartados set estado = 'rechazado' where id = p_id;
+
+  elsif p_accion = 'cancelar' then
+    if not ((es_c and e in ('pendiente', 'aceptado')) or (es_v and e = 'aceptado')) then
+      raise exception 'No se puede cancelar en este estado';
+    end if;
+    if e = 'aceptado' then
+      update public.productos
+         set cantidad_disponible = cantidad_disponible + r.cantidad, disponible = true,
+             actualizado_en = now()
+       where id = r.id_producto and cantidad_disponible is not null;
+    end if;
+    update public.apartados set estado = 'cancelado' where id = p_id;
+
+  else
+    raise exception 'Acción no válida: %', p_accion;
+  end if;
+end $$;
+
+
+ALTER FUNCTION "public"."responder_apartado"("p_id" "uuid", "p_accion" "text") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."responder_propuesta"("p_id" "uuid", "p_accion" "text", "p_monto" numeric DEFAULT NULL::numeric) RETURNS "uuid"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+declare r record; v_user_vendedor uuid; v_nuevo uuid;
+begin
+  select * into r from public.propuestas_precio where id = p_id for update;
+  if not found then raise exception 'Propuesta no encontrada'; end if;
+
+  select id_usuario into v_user_vendedor from public.perfiles_vendedor where id = r.id_vendedor;
+  if auth.uid() is null or auth.uid() not in (r.id_comprador, v_user_vendedor) then
+    raise exception 'No participas en esta propuesta';
+  end if;
+  if r.id_emisor = auth.uid() then
+    raise exception 'Esta propuesta la envió otra persona: ella debe responderla';
+  end if;
+  if r.estado::text <> 'pendiente' then
+    raise exception 'Esta propuesta ya fue respondida';
+  end if;
+
+  perform set_config('tianguia.rpc', '1', true);
+
+  if p_accion = 'aceptar' then
+    update public.propuestas_precio set estado = 'aceptada', respondida_en = now() where id = p_id;
+    return p_id;
+  elsif p_accion = 'rechazar' then
+    update public.propuestas_precio set estado = 'rechazada', respondida_en = now() where id = p_id;
+    return p_id;
+  elsif p_accion = 'contraofertar' then
+    if p_monto is null or p_monto < 0 then raise exception 'Escribe un monto válido'; end if;
+    update public.propuestas_precio set estado = 'contraofertada', respondida_en = now() where id = p_id;
+    insert into public.propuestas_precio
+      (id_producto, id_comprador, id_vendedor, id_emisor, id_propuesta_anterior, monto)
+    values (r.id_producto, r.id_comprador, r.id_vendedor, auth.uid(), p_id, p_monto)
+    returning id into v_nuevo;
+    return v_nuevo;
+  end if;
+  raise exception 'Acción no válida: %', p_accion;
+end $$;
+
+
+ALTER FUNCTION "public"."responder_propuesta"("p_id" "uuid", "p_accion" "text", "p_monto" numeric) OWNER TO "postgres";
+
+
 CREATE OR REPLACE FUNCTION "public"."resumen_inicio"() RETURNS json
     LANGUAGE "sql" STABLE SECURITY DEFINER
     SET "search_path" TO 'public'
@@ -945,6 +1091,62 @@ end $$;
 ALTER FUNCTION "public"."tg_solo_cuentas_reales"() OWNER TO "postgres";
 
 
+CREATE OR REPLACE FUNCTION "public"."tg_solo_cuentas_verificadas"() RETURNS "trigger"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public', 'auth'
+    AS $$
+begin
+  if public.es_anonimo(new.id_usuario) then
+    raise exception 'Verifica tu correo para poder ser vendedor.';
+  end if;
+  return new;
+end $$;
+
+
+ALTER FUNCTION "public"."tg_solo_cuentas_verificadas"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."tg_sync_contacto"() RETURNS "trigger"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+begin
+  update public.usuarios
+     set correo = new.email,
+         actualizado_en = now()
+   where id = new.id;
+  return new;
+end $$;
+
+
+ALTER FUNCTION "public"."tg_sync_contacto"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."tratos_guard"() RETURNS "trigger"
+    LANGUAGE "plpgsql"
+    AS $$
+begin
+  if coalesce(current_setting('tianguia.rpc', true), '') = '1' or public.es_admin() then
+    return new;
+  end if;
+  if new.estado is distinct from old.estado then
+    raise exception 'Usa las opciones de la app para responder (el estado no se cambia directo)';
+  end if;
+  if tg_table_name = 'apartados' and (new.cantidad is distinct from old.cantidad
+                                      or new.id_producto is distinct from old.id_producto) then
+    raise exception 'No se puede modificar un apartado ya creado';
+  end if;
+  if tg_table_name = 'propuestas_precio' and (new.monto is distinct from old.monto
+                                              or new.id_producto is distinct from old.id_producto) then
+    raise exception 'No se puede modificar una propuesta ya enviada';
+  end if;
+  return new;
+end $$;
+
+
+ALTER FUNCTION "public"."tratos_guard"() OWNER TO "postgres";
+
+
 CREATE OR REPLACE FUNCTION "public"."validar_mensaje"() RETURNS "trigger"
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO 'public'
@@ -964,6 +1166,37 @@ end $$;
 
 
 ALTER FUNCTION "public"."validar_mensaje"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."vencer_pendientes"() RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+declare a record;
+begin
+  perform set_config('tianguia.rpc', '1', true);
+
+  for a in
+    select id, id_producto, cantidad, estado::text as e from public.apartados
+     where estado::text in ('pendiente', 'aceptado')
+       and fecha_expiracion is not null and fecha_expiracion < now()
+     for update
+  loop
+    if a.e = 'aceptado' then
+      update public.productos
+         set cantidad_disponible = cantidad_disponible + a.cantidad, disponible = true,
+             actualizado_en = now()
+       where id = a.id_producto and cantidad_disponible is not null;
+    end if;
+    update public.apartados set estado = 'expirado' where id = a.id;
+  end loop;
+
+  update public.ofertas set estado = 'finalizada'
+   where estado::text = 'activa' and fecha_fin < now();
+end $$;
+
+
+ALTER FUNCTION "public"."vencer_pendientes"() OWNER TO "postgres";
 
 
 CREATE TABLE IF NOT EXISTS "public"."aceptaciones_terminos" (
@@ -1103,6 +1336,16 @@ CREATE TABLE IF NOT EXISTS "public"."conversaciones" (
 
 
 ALTER TABLE "public"."conversaciones" OWNER TO "postgres";
+
+
+CREATE TABLE IF NOT EXISTS "public"."conversaciones_ocultas" (
+    "id_usuario" "uuid" NOT NULL,
+    "id_conversacion" "uuid" NOT NULL,
+    "ocultada_en" timestamp with time zone DEFAULT "now"() NOT NULL
+);
+
+
+ALTER TABLE "public"."conversaciones_ocultas" OWNER TO "postgres";
 
 
 CREATE TABLE IF NOT EXISTS "public"."dispositivos_push" (
@@ -1523,6 +1766,11 @@ ALTER TABLE ONLY "public"."codigos_visita"
 
 
 
+ALTER TABLE ONLY "public"."conversaciones_ocultas"
+    ADD CONSTRAINT "conversaciones_ocultas_pkey" PRIMARY KEY ("id_usuario", "id_conversacion");
+
+
+
 ALTER TABLE ONLY "public"."conversaciones"
     ADD CONSTRAINT "conversaciones_pkey" PRIMARY KEY ("id");
 
@@ -1839,11 +2087,31 @@ CREATE UNIQUE INDEX "uq_silencio_vendedor" ON "public"."silencios_notificacion" 
 
 
 
+CREATE UNIQUE INDEX "usuarios_nombre_publico_unico" ON "public"."usuarios" USING "btree" ("lower"("nombre_publico"));
+
+
+
 CREATE OR REPLACE TRIGGER "administradores_solo_reales" BEFORE INSERT ON "public"."administradores" FOR EACH ROW EXECUTE FUNCTION "public"."tg_solo_cuentas_reales"();
 
 
 
+CREATE OR REPLACE TRIGGER "administradores_verificado" BEFORE INSERT ON "public"."administradores" FOR EACH ROW EXECUTE FUNCTION "public"."tg_solo_cuentas_verificadas"();
+
+
+
+CREATE OR REPLACE TRIGGER "apartados_guard" BEFORE UPDATE ON "public"."apartados" FOR EACH ROW EXECUTE FUNCTION "public"."tratos_guard"();
+
+
+
 CREATE OR REPLACE TRIGGER "perfiles_vendedor_solo_reales" BEFORE INSERT ON "public"."perfiles_vendedor" FOR EACH ROW EXECUTE FUNCTION "public"."tg_solo_cuentas_reales"();
+
+
+
+CREATE OR REPLACE TRIGGER "perfiles_vendedor_verificado" BEFORE INSERT ON "public"."perfiles_vendedor" FOR EACH ROW EXECUTE FUNCTION "public"."tg_solo_cuentas_verificadas"();
+
+
+
+CREATE OR REPLACE TRIGGER "propuestas_guard" BEFORE UPDATE ON "public"."propuestas_precio" FOR EACH ROW EXECUTE FUNCTION "public"."tratos_guard"();
 
 
 
@@ -2035,6 +2303,16 @@ ALTER TABLE ONLY "public"."conversaciones"
 
 ALTER TABLE ONLY "public"."conversaciones"
     ADD CONSTRAINT "conversaciones_id_receptor_fkey" FOREIGN KEY ("id_receptor") REFERENCES "public"."usuarios"("id") ON DELETE CASCADE;
+
+
+
+ALTER TABLE ONLY "public"."conversaciones_ocultas"
+    ADD CONSTRAINT "conversaciones_ocultas_id_conversacion_fkey" FOREIGN KEY ("id_conversacion") REFERENCES "public"."conversaciones"("id") ON DELETE CASCADE;
+
+
+
+ALTER TABLE ONLY "public"."conversaciones_ocultas"
+    ADD CONSTRAINT "conversaciones_ocultas_id_usuario_fkey" FOREIGN KEY ("id_usuario") REFERENCES "public"."usuarios"("id") ON DELETE CASCADE;
 
 
 
@@ -2434,6 +2712,9 @@ CREATE POLICY "conv_select" ON "public"."conversaciones" FOR SELECT TO "authenti
 ALTER TABLE "public"."conversaciones" ENABLE ROW LEVEL SECURITY;
 
 
+ALTER TABLE "public"."conversaciones_ocultas" ENABLE ROW LEVEL SECURITY;
+
+
 CREATE POLICY "disp_all" ON "public"."dispositivos_push" TO "authenticated" USING (("id_usuario" = "auth"."uid"())) WITH CHECK (("id_usuario" = "auth"."uid"()));
 
 
@@ -2671,6 +2952,10 @@ CREATE POLICY "sil_all" ON "public"."silencios_notificacion" TO "authenticated" 
 ALTER TABLE "public"."silencios_notificacion" ENABLE ROW LEVEL SECURITY;
 
 
+CREATE POLICY "tg_ocultas_propias" ON "public"."conversaciones_ocultas" TO "authenticated" USING (("id_usuario" = "auth"."uid"())) WITH CHECK (("id_usuario" = "auth"."uid"()));
+
+
+
 ALTER TABLE "public"."tianguis" ENABLE ROW LEVEL SECURITY;
 
 
@@ -2701,6 +2986,14 @@ CREATE POLICY "tianguis_zonas_admin" ON "public"."tianguis_zonas" TO "authentica
 
 
 CREATE POLICY "tianguis_zonas_select" ON "public"."tianguis_zonas" FOR SELECT TO "authenticated" USING (true);
+
+
+
+CREATE POLICY "trato_usuarios_leer" ON "public"."usuarios" FOR SELECT TO "authenticated" USING (((EXISTS ( SELECT 1
+   FROM "public"."propuestas_precio" "pp"
+  WHERE (("pp"."id_comprador" = "usuarios"."id") AND "public"."es_mi_vendedor"("pp"."id_vendedor")))) OR (EXISTS ( SELECT 1
+   FROM "public"."apartados" "ap"
+  WHERE (("ap"."id_comprador" = "usuarios"."id") AND "public"."es_mi_vendedor"("ap"."id_vendedor"))))));
 
 
 
@@ -2757,203 +3050,13 @@ CREATE POLICY "vt_write" ON "public"."vendedor_tianguis" TO "authenticated" USIN
 
 
 
-
-
-ALTER PUBLICATION "supabase_realtime" OWNER TO "postgres";
-
-
-
-
-
-
-ALTER PUBLICATION "supabase_realtime" ADD TABLE ONLY "public"."apartados";
-
-
-
-ALTER PUBLICATION "supabase_realtime" ADD TABLE ONLY "public"."mensajes";
-
-
-
-ALTER PUBLICATION "supabase_realtime" ADD TABLE ONLY "public"."notificaciones";
-
-
-
-ALTER PUBLICATION "supabase_realtime" ADD TABLE ONLY "public"."propuestas_precio";
-
-
-
-ALTER PUBLICATION "supabase_realtime" ADD TABLE ONLY "public"."puestos";
-
-
-
--- Al restaurar, las tablas pueden heredar GRANTs del entorno Supabase local.
--- Limpiar esos permisos antes de reproducir las concesiones de la exportación.
+-- Remove target default grants before replaying the source ACL.
 REVOKE ALL ON ALL TABLES IN SCHEMA public FROM anon, authenticated, PUBLIC;
+REVOKE ALL ON ALL FUNCTIONS IN SCHEMA public FROM anon, authenticated;
 GRANT USAGE ON SCHEMA "public" TO "postgres";
 GRANT USAGE ON SCHEMA "public" TO "anon";
 GRANT USAGE ON SCHEMA "public" TO "authenticated";
 GRANT USAGE ON SCHEMA "public" TO "service_role";
-
-
-
-GRANT ALL ON FUNCTION "public"."gtrgm_in"("cstring") TO "postgres";
-GRANT ALL ON FUNCTION "public"."gtrgm_in"("cstring") TO "anon";
-GRANT ALL ON FUNCTION "public"."gtrgm_in"("cstring") TO "authenticated";
-GRANT ALL ON FUNCTION "public"."gtrgm_in"("cstring") TO "service_role";
-
-
-
-GRANT ALL ON FUNCTION "public"."gtrgm_out"("public"."gtrgm") TO "postgres";
-GRANT ALL ON FUNCTION "public"."gtrgm_out"("public"."gtrgm") TO "anon";
-GRANT ALL ON FUNCTION "public"."gtrgm_out"("public"."gtrgm") TO "authenticated";
-GRANT ALL ON FUNCTION "public"."gtrgm_out"("public"."gtrgm") TO "service_role";
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
@@ -3011,6 +3114,12 @@ GRANT ALL ON FUNCTION "public"."es_anonimo"("p_uid" "uuid") TO "service_role";
 
 
 
+GRANT ALL ON FUNCTION "public"."es_mi_vendedor"("p_vendedor_id" "uuid") TO "anon";
+GRANT ALL ON FUNCTION "public"."es_mi_vendedor"("p_vendedor_id" "uuid") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."es_mi_vendedor"("p_vendedor_id" "uuid") TO "service_role";
+
+
+
 GRANT ALL ON FUNCTION "public"."expirar_apartados"() TO "anon";
 GRANT ALL ON FUNCTION "public"."expirar_apartados"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."expirar_apartados"() TO "service_role";
@@ -3032,97 +3141,6 @@ GRANT ALL ON FUNCTION "public"."fijar_vendedor_desde_producto"() TO "service_rol
 GRANT ALL ON FUNCTION "public"."generar_codigo_visita"("p_id_puesto" "uuid", "p_minutos" integer) TO "anon";
 GRANT ALL ON FUNCTION "public"."generar_codigo_visita"("p_id_puesto" "uuid", "p_minutos" integer) TO "authenticated";
 GRANT ALL ON FUNCTION "public"."generar_codigo_visita"("p_id_puesto" "uuid", "p_minutos" integer) TO "service_role";
-
-
-
-GRANT ALL ON FUNCTION "public"."gin_extract_query_trgm"("text", "internal", smallint, "internal", "internal", "internal", "internal") TO "postgres";
-GRANT ALL ON FUNCTION "public"."gin_extract_query_trgm"("text", "internal", smallint, "internal", "internal", "internal", "internal") TO "anon";
-GRANT ALL ON FUNCTION "public"."gin_extract_query_trgm"("text", "internal", smallint, "internal", "internal", "internal", "internal") TO "authenticated";
-GRANT ALL ON FUNCTION "public"."gin_extract_query_trgm"("text", "internal", smallint, "internal", "internal", "internal", "internal") TO "service_role";
-
-
-
-GRANT ALL ON FUNCTION "public"."gin_extract_value_trgm"("text", "internal") TO "postgres";
-GRANT ALL ON FUNCTION "public"."gin_extract_value_trgm"("text", "internal") TO "anon";
-GRANT ALL ON FUNCTION "public"."gin_extract_value_trgm"("text", "internal") TO "authenticated";
-GRANT ALL ON FUNCTION "public"."gin_extract_value_trgm"("text", "internal") TO "service_role";
-
-
-
-GRANT ALL ON FUNCTION "public"."gin_trgm_consistent"("internal", smallint, "text", integer, "internal", "internal", "internal", "internal") TO "postgres";
-GRANT ALL ON FUNCTION "public"."gin_trgm_consistent"("internal", smallint, "text", integer, "internal", "internal", "internal", "internal") TO "anon";
-GRANT ALL ON FUNCTION "public"."gin_trgm_consistent"("internal", smallint, "text", integer, "internal", "internal", "internal", "internal") TO "authenticated";
-GRANT ALL ON FUNCTION "public"."gin_trgm_consistent"("internal", smallint, "text", integer, "internal", "internal", "internal", "internal") TO "service_role";
-
-
-
-GRANT ALL ON FUNCTION "public"."gin_trgm_triconsistent"("internal", smallint, "text", integer, "internal", "internal", "internal") TO "postgres";
-GRANT ALL ON FUNCTION "public"."gin_trgm_triconsistent"("internal", smallint, "text", integer, "internal", "internal", "internal") TO "anon";
-GRANT ALL ON FUNCTION "public"."gin_trgm_triconsistent"("internal", smallint, "text", integer, "internal", "internal", "internal") TO "authenticated";
-GRANT ALL ON FUNCTION "public"."gin_trgm_triconsistent"("internal", smallint, "text", integer, "internal", "internal", "internal") TO "service_role";
-
-
-
-GRANT ALL ON FUNCTION "public"."gtrgm_compress"("internal") TO "postgres";
-GRANT ALL ON FUNCTION "public"."gtrgm_compress"("internal") TO "anon";
-GRANT ALL ON FUNCTION "public"."gtrgm_compress"("internal") TO "authenticated";
-GRANT ALL ON FUNCTION "public"."gtrgm_compress"("internal") TO "service_role";
-
-
-
-GRANT ALL ON FUNCTION "public"."gtrgm_consistent"("internal", "text", smallint, "oid", "internal") TO "postgres";
-GRANT ALL ON FUNCTION "public"."gtrgm_consistent"("internal", "text", smallint, "oid", "internal") TO "anon";
-GRANT ALL ON FUNCTION "public"."gtrgm_consistent"("internal", "text", smallint, "oid", "internal") TO "authenticated";
-GRANT ALL ON FUNCTION "public"."gtrgm_consistent"("internal", "text", smallint, "oid", "internal") TO "service_role";
-
-
-
-GRANT ALL ON FUNCTION "public"."gtrgm_decompress"("internal") TO "postgres";
-GRANT ALL ON FUNCTION "public"."gtrgm_decompress"("internal") TO "anon";
-GRANT ALL ON FUNCTION "public"."gtrgm_decompress"("internal") TO "authenticated";
-GRANT ALL ON FUNCTION "public"."gtrgm_decompress"("internal") TO "service_role";
-
-
-
-GRANT ALL ON FUNCTION "public"."gtrgm_distance"("internal", "text", smallint, "oid", "internal") TO "postgres";
-GRANT ALL ON FUNCTION "public"."gtrgm_distance"("internal", "text", smallint, "oid", "internal") TO "anon";
-GRANT ALL ON FUNCTION "public"."gtrgm_distance"("internal", "text", smallint, "oid", "internal") TO "authenticated";
-GRANT ALL ON FUNCTION "public"."gtrgm_distance"("internal", "text", smallint, "oid", "internal") TO "service_role";
-
-
-
-GRANT ALL ON FUNCTION "public"."gtrgm_options"("internal") TO "postgres";
-GRANT ALL ON FUNCTION "public"."gtrgm_options"("internal") TO "anon";
-GRANT ALL ON FUNCTION "public"."gtrgm_options"("internal") TO "authenticated";
-GRANT ALL ON FUNCTION "public"."gtrgm_options"("internal") TO "service_role";
-
-
-
-GRANT ALL ON FUNCTION "public"."gtrgm_penalty"("internal", "internal", "internal") TO "postgres";
-GRANT ALL ON FUNCTION "public"."gtrgm_penalty"("internal", "internal", "internal") TO "anon";
-GRANT ALL ON FUNCTION "public"."gtrgm_penalty"("internal", "internal", "internal") TO "authenticated";
-GRANT ALL ON FUNCTION "public"."gtrgm_penalty"("internal", "internal", "internal") TO "service_role";
-
-
-
-GRANT ALL ON FUNCTION "public"."gtrgm_picksplit"("internal", "internal") TO "postgres";
-GRANT ALL ON FUNCTION "public"."gtrgm_picksplit"("internal", "internal") TO "anon";
-GRANT ALL ON FUNCTION "public"."gtrgm_picksplit"("internal", "internal") TO "authenticated";
-GRANT ALL ON FUNCTION "public"."gtrgm_picksplit"("internal", "internal") TO "service_role";
-
-
-
-GRANT ALL ON FUNCTION "public"."gtrgm_same"("public"."gtrgm", "public"."gtrgm", "internal") TO "postgres";
-GRANT ALL ON FUNCTION "public"."gtrgm_same"("public"."gtrgm", "public"."gtrgm", "internal") TO "anon";
-GRANT ALL ON FUNCTION "public"."gtrgm_same"("public"."gtrgm", "public"."gtrgm", "internal") TO "authenticated";
-GRANT ALL ON FUNCTION "public"."gtrgm_same"("public"."gtrgm", "public"."gtrgm", "internal") TO "service_role";
-
-
-
-GRANT ALL ON FUNCTION "public"."gtrgm_union"("internal", "internal") TO "postgres";
-GRANT ALL ON FUNCTION "public"."gtrgm_union"("internal", "internal") TO "anon";
-GRANT ALL ON FUNCTION "public"."gtrgm_union"("internal", "internal") TO "authenticated";
-GRANT ALL ON FUNCTION "public"."gtrgm_union"("internal", "internal") TO "service_role";
 
 
 
@@ -3156,6 +3174,13 @@ GRANT ALL ON FUNCTION "public"."mi_vendedor_id"() TO "service_role";
 
 
 
+REVOKE ALL ON FUNCTION "public"."nombre_disponible"("p_nombre" "text") FROM PUBLIC;
+GRANT ALL ON FUNCTION "public"."nombre_disponible"("p_nombre" "text") TO "anon";
+GRANT ALL ON FUNCTION "public"."nombre_disponible"("p_nombre" "text") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."nombre_disponible"("p_nombre" "text") TO "service_role";
+
+
+
 GRANT ALL ON FUNCTION "public"."notificar_ausencia"() TO "anon";
 GRANT ALL ON FUNCTION "public"."notificar_ausencia"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."notificar_ausencia"() TO "service_role";
@@ -3171,6 +3196,12 @@ GRANT ALL ON FUNCTION "public"."notificar_medida"() TO "service_role";
 GRANT ALL ON FUNCTION "public"."notificar_oferta"() TO "anon";
 GRANT ALL ON FUNCTION "public"."notificar_oferta"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."notificar_oferta"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."ocultar_conversacion"("p_id" "uuid") TO "anon";
+GRANT ALL ON FUNCTION "public"."ocultar_conversacion"("p_id" "uuid") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."ocultar_conversacion"("p_id" "uuid") TO "service_role";
 
 
 
@@ -3253,6 +3284,18 @@ GRANT ALL ON FUNCTION "public"."puestos_tendencia"("p_categoria" "uuid", "p_limi
 
 
 
+GRANT ALL ON FUNCTION "public"."responder_apartado"("p_id" "uuid", "p_accion" "text") TO "anon";
+GRANT ALL ON FUNCTION "public"."responder_apartado"("p_id" "uuid", "p_accion" "text") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."responder_apartado"("p_id" "uuid", "p_accion" "text") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."responder_propuesta"("p_id" "uuid", "p_accion" "text", "p_monto" numeric) TO "anon";
+GRANT ALL ON FUNCTION "public"."responder_propuesta"("p_id" "uuid", "p_accion" "text", "p_monto" numeric) TO "authenticated";
+GRANT ALL ON FUNCTION "public"."responder_propuesta"("p_id" "uuid", "p_accion" "text", "p_monto" numeric) TO "service_role";
+
+
+
 GRANT ALL ON FUNCTION "public"."resumen_inicio"() TO "anon";
 GRANT ALL ON FUNCTION "public"."resumen_inicio"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."resumen_inicio"() TO "service_role";
@@ -3265,86 +3308,9 @@ GRANT ALL ON FUNCTION "public"."set_actualizado_en"() TO "service_role";
 
 
 
-GRANT ALL ON FUNCTION "public"."set_limit"(real) TO "postgres";
-GRANT ALL ON FUNCTION "public"."set_limit"(real) TO "anon";
-GRANT ALL ON FUNCTION "public"."set_limit"(real) TO "authenticated";
-GRANT ALL ON FUNCTION "public"."set_limit"(real) TO "service_role";
-
-
-
-GRANT ALL ON FUNCTION "public"."show_limit"() TO "postgres";
-GRANT ALL ON FUNCTION "public"."show_limit"() TO "anon";
-GRANT ALL ON FUNCTION "public"."show_limit"() TO "authenticated";
-GRANT ALL ON FUNCTION "public"."show_limit"() TO "service_role";
-
-
-
-GRANT ALL ON FUNCTION "public"."show_trgm"("text") TO "postgres";
-GRANT ALL ON FUNCTION "public"."show_trgm"("text") TO "anon";
-GRANT ALL ON FUNCTION "public"."show_trgm"("text") TO "authenticated";
-GRANT ALL ON FUNCTION "public"."show_trgm"("text") TO "service_role";
-
-
-
-GRANT ALL ON FUNCTION "public"."similarity"("text", "text") TO "postgres";
-GRANT ALL ON FUNCTION "public"."similarity"("text", "text") TO "anon";
-GRANT ALL ON FUNCTION "public"."similarity"("text", "text") TO "authenticated";
-GRANT ALL ON FUNCTION "public"."similarity"("text", "text") TO "service_role";
-
-
-
-GRANT ALL ON FUNCTION "public"."similarity_dist"("text", "text") TO "postgres";
-GRANT ALL ON FUNCTION "public"."similarity_dist"("text", "text") TO "anon";
-GRANT ALL ON FUNCTION "public"."similarity_dist"("text", "text") TO "authenticated";
-GRANT ALL ON FUNCTION "public"."similarity_dist"("text", "text") TO "service_role";
-
-
-
-GRANT ALL ON FUNCTION "public"."similarity_op"("text", "text") TO "postgres";
-GRANT ALL ON FUNCTION "public"."similarity_op"("text", "text") TO "anon";
-GRANT ALL ON FUNCTION "public"."similarity_op"("text", "text") TO "authenticated";
-GRANT ALL ON FUNCTION "public"."similarity_op"("text", "text") TO "service_role";
-
-
-
 GRANT ALL ON FUNCTION "public"."soy_vendedor"("p_id" "uuid") TO "anon";
 GRANT ALL ON FUNCTION "public"."soy_vendedor"("p_id" "uuid") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."soy_vendedor"("p_id" "uuid") TO "service_role";
-
-
-
-GRANT ALL ON FUNCTION "public"."strict_word_similarity"("text", "text") TO "postgres";
-GRANT ALL ON FUNCTION "public"."strict_word_similarity"("text", "text") TO "anon";
-GRANT ALL ON FUNCTION "public"."strict_word_similarity"("text", "text") TO "authenticated";
-GRANT ALL ON FUNCTION "public"."strict_word_similarity"("text", "text") TO "service_role";
-
-
-
-GRANT ALL ON FUNCTION "public"."strict_word_similarity_commutator_op"("text", "text") TO "postgres";
-GRANT ALL ON FUNCTION "public"."strict_word_similarity_commutator_op"("text", "text") TO "anon";
-GRANT ALL ON FUNCTION "public"."strict_word_similarity_commutator_op"("text", "text") TO "authenticated";
-GRANT ALL ON FUNCTION "public"."strict_word_similarity_commutator_op"("text", "text") TO "service_role";
-
-
-
-GRANT ALL ON FUNCTION "public"."strict_word_similarity_dist_commutator_op"("text", "text") TO "postgres";
-GRANT ALL ON FUNCTION "public"."strict_word_similarity_dist_commutator_op"("text", "text") TO "anon";
-GRANT ALL ON FUNCTION "public"."strict_word_similarity_dist_commutator_op"("text", "text") TO "authenticated";
-GRANT ALL ON FUNCTION "public"."strict_word_similarity_dist_commutator_op"("text", "text") TO "service_role";
-
-
-
-GRANT ALL ON FUNCTION "public"."strict_word_similarity_dist_op"("text", "text") TO "postgres";
-GRANT ALL ON FUNCTION "public"."strict_word_similarity_dist_op"("text", "text") TO "anon";
-GRANT ALL ON FUNCTION "public"."strict_word_similarity_dist_op"("text", "text") TO "authenticated";
-GRANT ALL ON FUNCTION "public"."strict_word_similarity_dist_op"("text", "text") TO "service_role";
-
-
-
-GRANT ALL ON FUNCTION "public"."strict_word_similarity_op"("text", "text") TO "postgres";
-GRANT ALL ON FUNCTION "public"."strict_word_similarity_op"("text", "text") TO "anon";
-GRANT ALL ON FUNCTION "public"."strict_word_similarity_op"("text", "text") TO "authenticated";
-GRANT ALL ON FUNCTION "public"."strict_word_similarity_op"("text", "text") TO "service_role";
 
 
 
@@ -3365,59 +3331,33 @@ GRANT ALL ON FUNCTION "public"."tg_solo_cuentas_reales"() TO "service_role";
 
 
 
+GRANT ALL ON FUNCTION "public"."tg_solo_cuentas_verificadas"() TO "anon";
+GRANT ALL ON FUNCTION "public"."tg_solo_cuentas_verificadas"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."tg_solo_cuentas_verificadas"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."tg_sync_contacto"() TO "anon";
+GRANT ALL ON FUNCTION "public"."tg_sync_contacto"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."tg_sync_contacto"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."tratos_guard"() TO "anon";
+GRANT ALL ON FUNCTION "public"."tratos_guard"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."tratos_guard"() TO "service_role";
+
+
+
 GRANT ALL ON FUNCTION "public"."validar_mensaje"() TO "anon";
 GRANT ALL ON FUNCTION "public"."validar_mensaje"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."validar_mensaje"() TO "service_role";
 
 
 
-GRANT ALL ON FUNCTION "public"."word_similarity"("text", "text") TO "postgres";
-GRANT ALL ON FUNCTION "public"."word_similarity"("text", "text") TO "anon";
-GRANT ALL ON FUNCTION "public"."word_similarity"("text", "text") TO "authenticated";
-GRANT ALL ON FUNCTION "public"."word_similarity"("text", "text") TO "service_role";
-
-
-
-GRANT ALL ON FUNCTION "public"."word_similarity_commutator_op"("text", "text") TO "postgres";
-GRANT ALL ON FUNCTION "public"."word_similarity_commutator_op"("text", "text") TO "anon";
-GRANT ALL ON FUNCTION "public"."word_similarity_commutator_op"("text", "text") TO "authenticated";
-GRANT ALL ON FUNCTION "public"."word_similarity_commutator_op"("text", "text") TO "service_role";
-
-
-
-GRANT ALL ON FUNCTION "public"."word_similarity_dist_commutator_op"("text", "text") TO "postgres";
-GRANT ALL ON FUNCTION "public"."word_similarity_dist_commutator_op"("text", "text") TO "anon";
-GRANT ALL ON FUNCTION "public"."word_similarity_dist_commutator_op"("text", "text") TO "authenticated";
-GRANT ALL ON FUNCTION "public"."word_similarity_dist_commutator_op"("text", "text") TO "service_role";
-
-
-
-GRANT ALL ON FUNCTION "public"."word_similarity_dist_op"("text", "text") TO "postgres";
-GRANT ALL ON FUNCTION "public"."word_similarity_dist_op"("text", "text") TO "anon";
-GRANT ALL ON FUNCTION "public"."word_similarity_dist_op"("text", "text") TO "authenticated";
-GRANT ALL ON FUNCTION "public"."word_similarity_dist_op"("text", "text") TO "service_role";
-
-
-
-GRANT ALL ON FUNCTION "public"."word_similarity_op"("text", "text") TO "postgres";
-GRANT ALL ON FUNCTION "public"."word_similarity_op"("text", "text") TO "anon";
-GRANT ALL ON FUNCTION "public"."word_similarity_op"("text", "text") TO "authenticated";
-GRANT ALL ON FUNCTION "public"."word_similarity_op"("text", "text") TO "service_role";
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+REVOKE ALL ON FUNCTION "public"."vencer_pendientes"() FROM PUBLIC;
+GRANT ALL ON FUNCTION "public"."vencer_pendientes"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."vencer_pendientes"() TO "service_role";
 
 
 
@@ -3468,6 +3408,12 @@ GRANT ALL ON TABLE "public"."codigos_visita" TO "service_role";
 
 GRANT ALL ON TABLE "public"."conversaciones" TO "authenticated";
 GRANT ALL ON TABLE "public"."conversaciones" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."conversaciones_ocultas" TO "anon";
+GRANT ALL ON TABLE "public"."conversaciones_ocultas" TO "authenticated";
+GRANT ALL ON TABLE "public"."conversaciones_ocultas" TO "service_role";
 
 
 
@@ -3601,12 +3547,6 @@ GRANT ALL ON TABLE "public"."visitas" TO "service_role";
 
 
 
-
-
-
-
-
-
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON SEQUENCES TO "postgres";
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON SEQUENCES TO "anon";
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON SEQUENCES TO "authenticated";
@@ -3631,3 +3571,32 @@ ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON TAB
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON TABLES TO "anon";
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON TABLES TO "authenticated";
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON TABLES TO "service_role";
+
+SET search_path = public, extensions;
+
+-- Existing application triggers on platform-managed tables.
+CREATE OR REPLACE TRIGGER on_auth_user_contacto AFTER UPDATE OF email ON auth.users FOR EACH ROW WHEN (((new.email)::text IS DISTINCT FROM (old.email)::text)) EXECUTE FUNCTION public.tg_sync_contacto();
+CREATE OR REPLACE TRIGGER on_auth_user_created AFTER INSERT ON auth.users FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+
+-- Bucket configuration only, never storage.objects rows.
+INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types) VALUES ('perfiles', 'perfiles', true, NULL, NULL) ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, public=EXCLUDED.public, file_size_limit=EXCLUDED.file_size_limit, allowed_mime_types=EXCLUDED.allowed_mime_types;
+INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types) VALUES ('productos', 'productos', true, NULL, NULL) ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, public=EXCLUDED.public, file_size_limit=EXCLUDED.file_size_limit, allowed_mime_types=EXCLUDED.allowed_mime_types;
+CREATE POLICY "storage_borrar" ON "storage"."objects" AS PERMISSIVE FOR DELETE TO "authenticated" USING (((bucket_id = ANY (ARRAY['productos'::text, 'perfiles'::text])) AND ((storage.foldername(name))[1] = (auth.uid())::text)));
+CREATE POLICY "storage_editar" ON "storage"."objects" AS PERMISSIVE FOR UPDATE TO "authenticated" USING (((bucket_id = ANY (ARRAY['productos'::text, 'perfiles'::text])) AND ((storage.foldername(name))[1] = (auth.uid())::text)));
+CREATE POLICY "storage_lectura" ON "storage"."objects" AS PERMISSIVE FOR SELECT TO PUBLIC USING ((bucket_id = ANY (ARRAY['productos'::text, 'perfiles'::text])));
+CREATE POLICY "storage_subir" ON "storage"."objects" AS PERMISSIVE FOR INSERT TO "authenticated" WITH CHECK (((bucket_id = ANY (ARRAY['productos'::text, 'perfiles'::text])) AND ((storage.foldername(name))[1] = (auth.uid())::text)));
+
+-- Only application tables; platform Realtime partitions are not copied.
+DO $baseline_publication$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_publication WHERE pubname='supabase_realtime') THEN
+    CREATE PUBLICATION supabase_realtime;
+  END IF;
+END $baseline_publication$;
+ALTER PUBLICATION "supabase_realtime" ADD TABLE ONLY "public"."apartados";
+ALTER PUBLICATION "supabase_realtime" ADD TABLE ONLY "public"."mensajes";
+ALTER PUBLICATION "supabase_realtime" ADD TABLE ONLY "public"."notificaciones";
+ALTER PUBLICATION "supabase_realtime" ADD TABLE ONLY "public"."propuestas_precio";
+ALTER PUBLICATION "supabase_realtime" ADD TABLE ONLY "public"."puestos";
+
+-- Existing application schedule; never export cron execution logs.
+SELECT cron.schedule('tianguia_vencer', '*/10 * * * *', 'select public.vencer_pendientes()');

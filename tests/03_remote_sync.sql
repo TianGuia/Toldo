@@ -7,11 +7,7 @@ BEGIN
   IF ok IS DISTINCT FROM true THEN RAISE EXCEPTION '%', mensaje; END IF;
 END $$;
 
--- Triggers solo para esta prueba: la exportación de public no incluye los de auth.
-CREATE TRIGGER toldo_test_alta AFTER INSERT ON auth.users
-  FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
-CREATE TRIGGER toldo_test_contacto AFTER UPDATE OF email ON auth.users
-  FOR EACH ROW EXECUTE FUNCTION public.tg_sync_contacto();
+-- Se ejercitan los triggers reales de Auth capturados en la linea base.
 
 INSERT INTO auth.users (id, email, raw_user_meta_data, is_anonymous)
 VALUES

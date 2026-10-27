@@ -1,13 +1,23 @@
 -- Solo lectura: falla si no se observa la estructura que despliega Toldo.
 DO $$
-DECLARE relation_name text;
+DECLARE relation_name text; migration_version text;
 BEGIN
+  FOREACH migration_version IN ARRAY ARRAY['20261027000000','20261027000100','20261027000200','20261027000300'] LOOP
+    IF NOT EXISTS (SELECT 1 FROM supabase_migrations.schema_migrations WHERE version=migration_version) THEN
+      RAISE EXCEPTION 'Falta registrar la migracion %', migration_version;
+    END IF;
+  END LOOP;
   IF NOT EXISTS (SELECT 1 FROM supabase_migrations.schema_migrations
-                 WHERE version = '20261026010000') THEN
+                 WHERE version = '20261027000200') THEN
     RAISE EXCEPTION 'No está registrada la migración del ER';
   END IF;
   IF to_regclass('public.compradores') IS NULL OR to_regclass('public.participantes') IS NULL THEN
     RAISE EXCEPTION 'Faltan compradores o participantes';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM supabase_migrations.schema_migrations
+    WHERE version = '20261027000300') OR to_regprocedure('public.retirar_puesto(uuid)') IS NULL
+    OR to_regprocedure('public.iniciar_conversacion(uuid,uuid)') IS NULL THEN
+    RAISE EXCEPTION 'Falta la migración de integración del cliente (retiro y creación de chat)';
   END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_constraint
     WHERE conrelid = 'public.participantes'::regclass AND contype = 'p' AND cardinality(conkey) = 2) THEN
