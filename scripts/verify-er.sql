@@ -2,7 +2,9 @@
 DO $$
 DECLARE relation_name text; migration_version text;
 BEGIN
-  FOREACH migration_version IN ARRAY ARRAY['20261027000000','20261027000100','20261027000200','20261027000300'] LOOP
+  FOREACH migration_version IN ARRAY ARRAY[
+    '20261027000000','20261027000100','20261027000200','20261027000300','20261124000000'
+  ] LOOP
     IF NOT EXISTS (SELECT 1 FROM supabase_migrations.schema_migrations WHERE version=migration_version) THEN
       RAISE EXCEPTION 'Falta registrar la migracion %', migration_version;
     END IF;
@@ -52,6 +54,16 @@ BEGIN
       RAISE EXCEPTION 'Falta estado en %', relation_name;
     END IF;
   END LOOP;
+  FOREACH relation_name IN ARRAY ARRAY['admin_bitacora','admin_credencial','admin_intentos','admin_sesiones'] LOOP
+    IF to_regclass(format('public.%I', relation_name)) IS NULL THEN
+      RAISE EXCEPTION 'Falta la tabla %', relation_name;
+    END IF;
+  END LOOP;
+  IF to_regprocedure('public.admin_entrar(text,text,text)') IS NULL
+    OR to_regprocedure('public.admin_aplicar_medida(text,uuid,text,text)') IS NULL
+    OR to_regprocedure('public.documento_vigente(public.tipo_documento)') IS NULL THEN
+    RAISE EXCEPTION 'Faltan funciones del panel o de consulta pública de documentos';
+  END IF;
   IF EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = 'public' AND NOT rowsecurity) THEN
     RAISE EXCEPTION 'Hay tablas públicas sin RLS';
   END IF;

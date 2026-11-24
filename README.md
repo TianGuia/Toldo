@@ -7,10 +7,11 @@ Supabase. La app vive en [Tianguiapp](https://github.com/Tianguia/Tianguiapp).
 
 | Versión | Contenido |
 | --- | --- |
-| `20261027000000_baseline_supabase` | Estructura remota actual: 39 tablas, funciones, relaciones, ACL, RLS, nombres únicos e integraciones propias de Auth, Storage, Realtime y cron. |
+| `20261027000000_baseline_supabase` | Captura del 27 de octubre: 39 tablas, funciones, relaciones, ACL, RLS, nombres únicos e integraciones propias de Auth, Storage, Realtime y cron. |
 | `20261027000100_restrict_client_privileges` | Reducción de permisos administrativos de clientes. |
 | `20261027000200_align_domain_contract` | Compradores, participantes, puesto obligatorio, ofertas por producto y demás relaciones del contrato. |
 | `20261027000300_client_operations` | Retiro transaccional, validaciones de publicación y creación de chats por RPC. |
+| `20261124000000_sync_admin_and_documents` | Captura del panel de administración, moderación y lectura de documentos vigentes en producción. |
 
 La primera migración es lo que se llamó “seeder inicial”: crea estructura y
 configuración, sin copiar registros reales. `supabase/seed.sql` contiene solo
@@ -31,7 +32,7 @@ bash scripts/test-db.sh
 La suite usa CLI 2.122.0 y PostgreSQL de Supabase en Docker. Primero restaura solo
 la línea base y verifica sus integraciones y permisos. Después aplica la reducción
 de privilegios, prueba la transformación ER sobre datos históricos sintéticos y
-aplica las mejoras restantes. Ejecuta seis pruebas SQL finales y verifica el historial
+aplica las mejoras restantes. Ejecuta siete pruebas SQL finales y verifica el historial
 y las RPC. También prueba la regeneración exacta del SQL y los scripts de despliegue.
 
 Usa `toldo_tests`, puerto 55432, sin credenciales ni vínculo remoto. Rechaza
@@ -40,14 +41,13 @@ se revierten. GitHub Actions ejecuta la misma suite en push y PR; no despliega c
 
 ## Adopción del proyecto existente
 
-La consulta directa encontró que `supabase_migrations.schema_migrations` no existe.
-Los historiales de Auth, Storage y Realtime son independientes. Sí había cambios del
-equipo fuera de Toldo: la captura incorpora nombres públicos únicos y su validación.
+La consulta del 24 de noviembre de 2026 confirmó que el proyecto Tianguia tiene las
+primeras cuatro migraciones en su historial y que ya contiene el esquema de la
+quinta. Antes de registrar la quinta en ese proyecto, verifica que la estructura
+siga coincidiendo. Una base vacía aplica las cinco migraciones en orden.
 
-Esta reorganización no registra ni aplica migraciones al remoto. Antes de adoptarla,
-comprueba que otros entornos no dependan de las versiones anteriores. Tras verificar
-que el remoto coincide con la captura, registra solo la línea base y aplica las tres
-mejoras. En una base vacía se ejecutan las cuatro. Git conserva los archivos anteriores.
+La quinta migración reproduce la estructura. Las credenciales administrativas,
+sesiones, bitácora y contenidos legales de producción son datos del entorno.
 
 Comandos y coordinación con la app: [Despliegue](docs/despliegue-supabase.md).
 

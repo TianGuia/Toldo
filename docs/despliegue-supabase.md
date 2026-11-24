@@ -2,8 +2,23 @@
 
 Un commit de Toldo no modifica Supabase. `db push` aplica archivos pendientes y
 registra sus versiones en `supabase_migrations.schema_migrations`.
-La [captura actual](baseline-20261027.md) confirmó que esa tabla no existe en el
-destino revisado. Reorganizar el repositorio no cambia ese historial.
+La [captura de octubre](baseline-20261027.md) se hizo antes de que el proyecto
+Tianguia tuviera historial de migraciones. El 24 de noviembre de 2026, una
+consulta confirmó que las cuatro versiones de octubre están registradas y que
+el esquema de la migración `20261124000000` ya existe en producción.
+
+En ese proyecto, comprueba el historial y compara el esquema antes de registrar
+la migración de noviembre como aplicada. La comparación debe incluir funciones,
+tablas, secuencias, permisos, políticas y los valores añadidos a `tipo_objetivo`.
+Cuando la estructura coincida, ejecuta en el proyecto vinculado lo siguiente.
+
+```sh
+npx --yes supabase@2.122.0 migration repair 20261124000000 --status applied --linked
+npx --yes supabase@2.122.0 migration list --linked
+```
+
+La reparación solo actualiza el historial. Los entornos que todavía carezcan de
+los objetos aplican la migración con `db push`.
 
 ## 1. Probar e identificar el destino
 
@@ -41,7 +56,8 @@ npx --yes supabase@2.122.0 migration list --linked
 las tres mejoras como aplicadas si no se ejecutaron. Estos comandos corresponden
 al despliegue futuro: no se ejecutaron durante la reorganización.
 
-En un proyecto vacío se omite `repair`: deben ejecutarse las cuatro migraciones.
+En un proyecto vacío se aplican las cinco migraciones en orden. El paso 2 es
+para un entorno que sigue en la línea base y carece de historial.
 
 ## 3. Revisar datos y vista previa
 
@@ -50,11 +66,11 @@ npx --yes supabase@2.122.0 db query --linked --file scripts/preflight-er.sql
 npx --yes supabase@2.122.0 db push --linked --dry-run
 ```
 
-Los cuatro contadores deben quedar en cero. Con la línea base registrada, el dry-run
-solo debe listar `20261027000100_restrict_client_privileges.sql`,
-`20261027000200_align_domain_contract.sql` y `20261027000300_client_operations.sql`.
-En un destino vacío también debe listar `20261027000000_baseline_supabase.sql`.
-La vista previa enumera archivos, no prueba sus transformaciones con datos remotos.
+Los cuatro contadores deben quedar en cero. La vista previa debe listar solo
+las versiones pendientes del destino. En Tianguia, el esquema de noviembre ya
+existe y se concilia con el historial según el apartado inicial. La vista
+previa enumera archivos, por lo que hay que probar las transformaciones por
+separado.
 
 ## 4. Aplicar y verificar
 
