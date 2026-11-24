@@ -51,8 +51,9 @@ begin
   if exists (
     select 1
     from public.silencios_notificacion s
+    join public.perfiles_vendedor pv on pv.id = s.id_vendedor
     where s.id_usuario = v_destinatario
-      and s.id_vendedor = new.id_remitente
+      and pv.id_usuario = new.id_remitente
   ) then
     return new;
   end if;
@@ -87,7 +88,7 @@ begin
   )
   values (
     v_destinatario,
-    'mensaje',
+    'mensaje'::tipo_notificacion,
     v_remitente_nombre,
     v_cuerpo,
     jsonb_build_object(
@@ -104,6 +105,8 @@ begin
 end;
 $$;
 
+revoke all on function public.notificar_mensaje() from public, anon, authenticated;
+
 drop trigger if exists trg_notificar_mensaje on public.mensajes;
 
 create trigger trg_notificar_mensaje
@@ -118,6 +121,7 @@ security definer
 set search_path = public
 as $$
 declare
+  v_vendedor_usuario uuid;
   v_destinatario uuid;
   v_actor uuid;
   v_actor_nombre text;
@@ -126,10 +130,19 @@ declare
   v_titulo text;
   v_cuerpo text;
 begin
+  select pv.id_usuario
+  into v_vendedor_usuario
+  from public.perfiles_vendedor pv
+  where pv.id = new.id_vendedor;
+
+  if v_vendedor_usuario is null then
+    return new;
+  end if;
+
   if tg_op = 'INSERT' then
     v_actor := new.id_emisor;
     if new.id_emisor = new.id_comprador then
-      v_destinatario := new.id_vendedor;
+      v_destinatario := v_vendedor_usuario;
     else
       v_destinatario := new.id_comprador;
     end if;
@@ -140,16 +153,16 @@ begin
 
     if new.estado in ('aceptada', 'rechazada') then
       if new.id_emisor = new.id_comprador then
-        v_actor := new.id_vendedor;
+        v_actor := v_vendedor_usuario;
         v_destinatario := new.id_comprador;
       else
         v_actor := new.id_comprador;
-        v_destinatario := new.id_vendedor;
+        v_destinatario := v_vendedor_usuario;
       end if;
     elsif new.estado = 'cancelada' then
       v_actor := new.id_emisor;
       if new.id_emisor = new.id_comprador then
-        v_destinatario := new.id_vendedor;
+        v_destinatario := v_vendedor_usuario;
       else
         v_destinatario := new.id_comprador;
       end if;
@@ -253,6 +266,8 @@ begin
 end;
 $$;
 
+revoke all on function public.notificar_propuesta_precio() from public, anon, authenticated;
+
 drop trigger if exists trg_notificar_propuesta_precio on public.propuestas_precio;
 
 create trigger trg_notificar_propuesta_precio
@@ -267,6 +282,7 @@ security definer
 set search_path = public
 as $$
 declare
+  v_vendedor_usuario uuid;
   v_destinatario uuid;
   v_actor uuid;
   v_comprador_nombre text;
@@ -275,20 +291,29 @@ declare
   v_titulo text;
   v_cuerpo text;
 begin
+  select pv.id_usuario
+  into v_vendedor_usuario
+  from public.perfiles_vendedor pv
+  where pv.id = new.id_vendedor;
+
+  if v_vendedor_usuario is null then
+    return new;
+  end if;
+
   if tg_op = 'INSERT' then
     v_actor := new.id_comprador;
-    v_destinatario := new.id_vendedor;
+    v_destinatario := v_vendedor_usuario;
   elsif tg_op = 'UPDATE' then
     if new.estado is not distinct from old.estado then
       return new;
     end if;
 
     if new.estado in ('aceptado', 'rechazado', 'expirado') then
-      v_actor := new.id_vendedor;
+      v_actor := v_vendedor_usuario;
       v_destinatario := new.id_comprador;
     elsif new.estado = 'cancelado' then
       v_actor := new.id_comprador;
-      v_destinatario := new.id_vendedor;
+      v_destinatario := v_vendedor_usuario;
     else
       return new;
     end if;
@@ -386,6 +411,8 @@ begin
   return new;
 end;
 $$;
+
+revoke all on function public.notificar_apartado() from public, anon, authenticated;
 
 drop trigger if exists trg_notificar_apartado on public.apartados;
 
