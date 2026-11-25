@@ -13,7 +13,8 @@ values ('26000000-0000-0000-0000-000000000021', 'Mercado Auditoría');
 insert into public.vendedor_tianguis (id_vendedor, id_tianguis)
 values ('26000000-0000-0000-0000-000000000011', '26000000-0000-0000-0000-000000000021');
 insert into public.puestos (id, id_vendedor, id_tianguis, nombre)
-values ('26000000-0000-0000-0000-000000000031', '26000000-0000-0000-0000-000000000011', 'Puesto Auditoría');
+values ('26000000-0000-0000-0000-000000000031', '26000000-0000-0000-0000-000000000011',
+        '26000000-0000-0000-0000-000000000021', 'Puesto Auditoría');
 insert into public.productos (id, id_vendedor, id_puesto, nombre, cantidad_disponible)
 values ('26000000-0000-0000-0000-000000000041', '26000000-0000-0000-0000-000000000011',
         '26000000-0000-0000-0000-000000000031', 'Producto Auditoría', 2);
