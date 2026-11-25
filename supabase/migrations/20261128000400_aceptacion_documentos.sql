@@ -82,7 +82,7 @@ begin
 end;
 $$;
 
--- Las políticas de lectura se mantienen. Los cambios pasan por los RPC.
+-- Los RPC son el camino de la app actual.
 revoke all on function public.terminos_pendientes() from public, anon, authenticated;
 revoke all on function public.aceptar_terminos_vigentes(uuid[]) from public, anon, authenticated;
 revoke all on function public.admin_publicar_documento(public.tipo_documento, text, text, boolean)
@@ -93,6 +93,15 @@ grant execute on function public.admin_publicar_documento(public.tipo_documento,
   to authenticated;
 
 revoke insert, update, delete on table public.aceptaciones_terminos from authenticated;
+-- La beta publicada aún inserta las aceptaciones directamente. Se conserva esa
+-- entrada solo para el usuario autenticado y las versiones que tiene pendientes.
+grant insert (id_usuario, id_version) on public.aceptaciones_terminos to authenticated;
+drop policy acep_ins on public.aceptaciones_terminos;
+alter policy aceptaciones_insert on public.aceptaciones_terminos with check (
+  id_usuario = auth.uid() and exists (
+    select 1 from public.terminos_pendientes() documento where documento.id = id_version
+  )
+);
 revoke insert, update, delete on table public.versiones_documento from authenticated;
 
 alter publication supabase_realtime add table public.versiones_documento;
