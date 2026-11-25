@@ -107,8 +107,7 @@ BEGIN
     UPDATE public.apartados SET estado = 'aceptado'
       WHERE id = '51000000-0000-0000-0000-000000000001';
     RAISE EXCEPTION 'Se permitió responder sin RPC';
-  EXCEPTION WHEN raise_exception THEN
-    IF SQLERRM <> 'Usa las opciones de la app para responder (el estado no se cambia directo)' THEN RAISE; END IF;
+  EXCEPTION WHEN insufficient_privilege THEN NULL;
   END;
 END $$;
 SELECT public.responder_apartado('51000000-0000-0000-0000-000000000001', 'aceptar');
