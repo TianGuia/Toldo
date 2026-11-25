@@ -12,6 +12,7 @@ Supabase. La app vive en [Tianguiapp](https://github.com/Tianguia/Tianguiapp).
 | `20261027000200_align_domain_contract` | Compradores, participantes, puesto obligatorio, ofertas por producto y demás relaciones del contrato. |
 | `20261027000300_client_operations` | Retiro transaccional, validaciones de publicación y creación de chats por RPC. |
 | `20261124000000_sync_admin_and_documents` | Captura del panel de administración, moderación y lectura de documentos vigentes en producción. |
+| `20261128000000_valoraciones_privadas_y_fallas` | Etiquetas de un puesto visibles para todos (solo conteos), comentarios de calificaciones solo para quien calificó, el vendedor y el administrador, y la tabla de reportes de fallas. |
 
 La primera migración es lo que se llamó “seeder inicial”: crea estructura y
 configuración, sin copiar registros reales. `supabase/seed.sql` contiene solo

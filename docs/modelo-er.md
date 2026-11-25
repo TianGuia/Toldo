@@ -32,7 +32,8 @@ coincide. En las tablas con `id`, este es el `id_<entidad>` del PDF.
 
 Imágenes y etiquetas son atributos multivalorados normalizados en relaciones
 auxiliares, no cadenas concatenadas. Categorías, horarios, jornadas, códigos,
-favoritos, propuestas, notificaciones y moderación son extensiones operativas.
+favoritos, propuestas, notificaciones, moderación y reportes de falla de la app
+(`reportes_falla`) son extensiones operativas.
 No sustituyen las relaciones del ER. Los campos opcionales del PDF no reciben
 obligatoriedad adicional sin una regla del dominio; las cardinalidades sí se
 implementan con FK, NOT NULL, PK y UNIQUE.
@@ -97,3 +98,18 @@ el esquema final. Los fixtures no contienen datos reales ni acceden al remoto.
 Verificado el 2026-10-26 con `bash scripts/test-db.sh` en WSL/Docker: la prueba
 de transformación histórica y las cuatro pruebas SQL del esquema final pasaron.
 El contenedor y el volumen temporales se limpiaron al finalizar.
+
+## Visibilidad de valoraciones y reportes de falla
+
+Migración `20261128000000_valoraciones_privadas_y_fallas.sql`:
+
+- `calificaciones.comentario` es privado. La política `calif_select` solo permite leer una
+  calificación a quien la escribió (`id_usuario`), al vendedor calificado y al administrador.
+  Antes bastaba con tener sesión y que la calificación no estuviera moderada.
+- Las etiquetas son públicas, pero solo como conteo: la función `etiquetas_puesto(p_puesto)`
+  (security definer) devuelve nombre y total de las calificaciones no moderadas, sin comentarios
+  ni autor. El promedio y el total salen de `v_puestos_resumen`; `resumen_calificaciones` pasa a
+  `security_invoker = false` porque solo expone agregados por vendedor.
+- `reportes_falla` (`id`, `id_usuario`, `tipo`, `descripcion` de 10 a 500 caracteres, `plataforma`,
+  `creada_en`): cualquier cuenta activa inserta el suyo; lo leen su autor y el administrador.
+  No pertenece al ER del PDF.
