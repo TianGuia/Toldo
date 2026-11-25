@@ -11,7 +11,7 @@ end $$;
 -- Simula dos ejecuciones del recordatorio de un tianguis favorito dentro de su ventana.
 insert into auth.users (id, is_anonymous)
 values ('25000000-0000-0000-0000-000000000001', true);
-insert into public.tianguis (id, nombre) values ('25000000-0000-0000-0000-000000000002', 'Tianguis de prueba RF-09');
+insert into public.tianguis (id, nombre) values ('25000000-0000-0000-0000-000000000002', 'Tianguis de prueba RF-14');
 insert into public.tianguis_horarios (id_tianguis, dia_semana, hora_inicio, hora_fin)
 values ('25000000-0000-0000-0000-000000000002', 3, '09:00', '13:00');
 insert into public.favoritos (id_usuario, id_tianguis)
